@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 
 from chemprop.features import BatchMolGraph, get_atom_fdim, get_bond_fdim, mol2graph
-from chemprop.nn_utils import index_select_ND, get_activation_function
+from chemprop.nn_utils import b_scope_tensor, batch_to_flat, flat_to_batch, index_select_ND, get_activation_function
 
 
 class MPNEncoder(nn.Module):
@@ -95,6 +95,14 @@ class MPNEncoder(nn.Module):
         else:
             input = self.W_i(f_bonds)  # num_bonds x hidden_size
         message = self.act_func(input)  # num_bonds x hidden_size
+        print('b_scope', b_scope)
+        print('message shape', message.shape, 'for', mol_graph.n_mols)
+        tobatch, revbatch = b_scope_tensor(b_scope)
+        print('revbatch', revbatch.shape)
+        lol = flat_to_batch(message, tobatch)
+        rev = batch_to_flat(message, revbatch)
+        print('batch msg shape', lol.shape)
+        print('flatten msg shape', rev.shape)
 
         # Message passing
         for depth in range(self.depth - 1):

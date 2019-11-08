@@ -203,7 +203,7 @@ class BatchMolGraph:
     - n_mols: The number of molecules in the batch.
     - atom_fdim: The dimensionality of the atom features.
     - bond_fdim: The dimensionality of the bond features (technically the combined atom/bond features).
-    - a_scope: A list of tuples indicating the start and end atom indices for each molecule.
+    - a_scope: A list of tuples indicating the start and end atom indices for each molecule. [start index, len]
     - b_scope: A list of tuples indicating the start and end bond indices for each molecule.
     - max_num_bonds: The maximum number of bonds neighboring an atom in this batch.
     - b2b: (Optional) A mapping from a bond index to incoming bond indices.

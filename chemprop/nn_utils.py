@@ -1,5 +1,5 @@
 import math
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 import torch
@@ -29,6 +29,50 @@ def param_count(model: nn.Module) -> int:
     :return: The number of trainable parameters.
     """
     return sum(param.numel() for param in model.parameters() if param.requires_grad)
+
+
+def b_scope_tensor(scope: List[Tuple[int, int]]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    :return: A tensor that ind selects into flat to produce batch. A tensor that does the reverse.
+    """
+    max_num_bonds = max([num for ind, num in scope])
+    sel, rev = [], []
+    for i, entry in enumerate(scope):
+        start, num = entry
+        sel.append([start+ind for ind in range(num)])
+        sel[-1].extend([0]*(max_num_bonds-num))
+        rev.extend([i*max_num_bonds+ind for ind in range(num)])
+    return torch.from_numpy(np.array(sel)), torch.from_numpy(np.array(rev))
+
+
+def flat_to_batch(source: torch.Tensor, scope: torch.Tensor) -> torch.Tensor:
+    """
+    :param source: A tensor of shape (num_bonds, hidden_size) containing message features.
+    :param scope: A tensor of shape (batch_size, max_num_bonds) expressing bond indices for each mol/row.
+
+    :return: A tensor of shape (batch, max_num_bonds, hidden_size) containing the message features.
+    """
+    final_size = (scope.shape[0], -1, source.shape[1])  # batch x max_num_bonds x hidden_size
+    ret = source.index_select(dim=0, index=scope.view(-1))
+    return ret.view(final_size)
+
+
+def batch_to_flat(source: torch.Tensor, scope: torch.Tensor) -> torch.Tensor:
+    """
+    :param source: A tensor of shape (batch, max_num_bonds, hidden_size).
+    :param scope: A tensor of shape (batch_size, max_num_bonds) expressing bond indices for each mol/row.
+
+    :return: A tensor of shape (num_bonds, hidden_size) with mols concatenated.
+    """
+    hidden_size = source.shape[-1]
+    ret = source.view(-1, hidden_size)  # (batch*max_num_bonds) x hidden_size
+    ret = ret.index_select(dim=0, index=scope)
+
+    # Add dummy row
+    dummy = torch.zeros(1, hidden_size)
+    ret = torch.cat((dummy, ret), dim=0)
+
+    return ret
 
 
 def index_select_ND(source: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
