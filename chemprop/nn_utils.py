@@ -68,10 +68,6 @@ def batch_to_flat(source: torch.Tensor, scope: torch.Tensor) -> torch.Tensor:
     ret = source.view(-1, hidden_size)  # (batch*max_num_bonds) x hidden_size
     ret = ret.index_select(dim=0, index=scope)
 
-    # Add dummy row
-    dummy = torch.zeros(1, hidden_size)
-    ret = torch.cat((dummy, ret), dim=0)
-
     return ret
 
 

@@ -46,8 +46,7 @@ class MPNEncoder(nn.Module):
         self.act_func2 = get_activation_function(args.activation)
 
         # Cached zeros
-        self.cached_zero_vector1 = nn.Parameter(torch.zeros(self.hidden_size), requires_grad=False)
-        self.cached_zero_vector2 = nn.Parameter(torch.zeros(self.hidden_size), requires_grad=False)
+        self.cached_zero_vector = nn.Parameter(torch.zeros(self.hidden_size), requires_grad=False)
 
         # Input
         input_dim = self.atom_fdim if self.atom_messages else self.bond_fdim
@@ -130,6 +129,7 @@ class MPNEncoder(nn.Module):
             if self.features_only:
                 raise RuntimeError("Not supported yet!")
 
+        zero_vector = torch.zeros(1,self.hidden_size)
         mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb, mol_a_scope, mol_b_scope = mol_graph.get_components()
         mol_b_scope, mol_b_revscope = b_scope_tensor(mol_b_scope)
         struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb, struct_a_scope, struct_b_scope = struct_graph.get_components()
@@ -141,9 +141,10 @@ class MPNEncoder(nn.Module):
 
         if self.args.cuda or next(self.parameters()).is_cuda:
             mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb = mol_f_atoms.cuda(), mol_f_bonds.cuda(), mol_a2b.cuda(), mol_b2a.cuda(), mol_b2revb.cuda()
-            mol_b_scope, mol_b_rev_scope = mol_b_scope.cuda(), mol_b_rev_scope.cuda()
+            mol_b_scope, mol_b_revscope = mol_b_scope.cuda(), mol_b_revscope.cuda()
             struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb = struct_f_atoms.cuda(), struct_f_bonds.cuda(), struct_a2b.cuda(), struct_b2a.cuda(), struct_b2revb.cuda()
-            struct_b_scope, struct_b_rev_scope = struct_b_scope.cuda(), struct_b_rev_scope.cuda()
+            struct_b_scope, struct_b_revscope = struct_b_scope.cuda(), struct_b_revscope.cuda()
+            zero_vector = zero_vector.cuda()
 
             if self.atom_messages:
                 a2a = a2a.cuda()
@@ -180,6 +181,8 @@ class MPNEncoder(nn.Module):
             attn = torch.matmul(scores.unsqueeze(-1), mol_attn.unsqueeze(2))
             attn = attn.sum(dim=1)
             attn = batch_to_flat(attn, struct_b_revscope)
+            # Add dummy row
+            attn = torch.cat((zero_vector, attn), dim=0)
             # print('attn shape', attn.shape)
 
             mol_message = self.W_h1(mol_message)
