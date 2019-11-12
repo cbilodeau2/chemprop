@@ -171,25 +171,32 @@ class MPNEncoder(nn.Module):
             # Reshape into batches
             mol_attn = flat_to_batch(mol_attn, mol_b_scope)
             struct_attn = flat_to_batch(struct_attn, struct_b_scope)
-            # print('HERE2 mol', mol_attn.shape, 'struct', struct_attn.shape)
+            print('HERE2 mol', mol_attn.shape, 'struct', struct_attn.shape)
 
             scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))
             scores = F.softmax(scores.masked_fill(scores == 0, -1e9), dim=1)
-            scores = torch.transpose(scores, dim0=1, dim1=2)
+            print('haha', scores.shape)
 
             # sum scores * msg of mol
-            attn = torch.matmul(scores.unsqueeze(-1), mol_attn.unsqueeze(2))
-            attn = attn.sum(dim=1)
-            attn = batch_to_flat(attn, struct_b_revscope)
+            mol_attn = torch.matmul(scores.unsqueeze(-1), struct_attn.unsqueeze(2))
+            mol_attn = attn.sum(dim=1)
+            mol_attn = batch_to_flat(mol_attn, struct_b_revscope)
             # Add dummy row
-            attn = torch.cat((zero_vector, attn), dim=0)
+            mol_attn = torch.cat((zero_vector, mol_attn), dim=0)
+
+            scores = torch.transpose(scores, dim0=1, dim1=2)
+            struct_attn = torch.matmul(scores.unsqueeze(-1), mol_attn.unsqueeze(2))
+            struct_attn = attn.sum(dim=1)
+            struct_attn = batch_to_flat(struct_attn, struct_b_revscope)
+            # Add dummy row
+            struct_attn = torch.cat((zero_vector, mol_attn), dim=0)
             # print('attn shape', attn.shape)
 
             mol_message = self.W_h1(mol_message)
             struct_message = self.W_h2(struct_message)
 
-            mol_message = self.act_func1(mol_input + mol_message)  # num_bonds x hidden_size
-            struct_message = self.act_func2(struct_input + struct_message + attn)  # num_bonds x hidden_size
+            mol_message = self.act_func1(mol_input + mol_message + mol_attn)  # num_bonds x hidden_size
+            struct_message = self.act_func2(struct_input + struct_message + struct_attn)  # num_bonds x hidden_size
             mol_message = self.dropout_layer1(mol_message)  # num_bonds x hidden
             struct_message = self.dropout_layer2(struct_message)  # num_bonds x hidden
 
