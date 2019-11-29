@@ -54,15 +54,12 @@ class MoleculeModel(nn.Module):
         if args.features_only:
             first_linear_dim = args.features_size
         else:
-            first_linear_dim = args.hidden_size
+            first_linear_dim = args.hidden_size*2
             if args.use_input_features:
                 first_linear_dim += args.features_dim
 
         dropout = nn.Dropout(args.dropout)
         activation = get_activation_function(args.activation)
-
-        # Pure concatenation
-        first_linear_dim *= 2
 
         # Create FFN layers
         if args.ffn_num_layers == 1:
