@@ -39,8 +39,7 @@ class MPNEncoder(nn.Module):
             return
 
         # Dropout
-        self.dropout_layer1 = nn.Dropout(p=self.dropout)
-        self.dropout_layer2 = nn.Dropout(p=self.dropout)
+        self.dropout_layer = nn.Dropout(p=self.dropout)
 
         # Activation
         self.act_func = get_activation_function(args.activation)
@@ -202,10 +201,10 @@ class MPNEncoder(nn.Module):
             mol_message = self.W_h1(mol_message)
             struct_message = self.W_h2(struct_message)
 
-            mol_message = self.act_func(mol_input + mol_message + mol_val)  # num_bonds x hidden_size
-            struct_message = self.act_func(struct_input + struct_message + struct_val)  # num_bonds x hidden_size
-            mol_message = self.dropout_layer1(mol_message)  # num_bonds x hidden
-            struct_message = self.dropout_layer2(struct_message)  # num_bonds x hidden
+            mol_message = self.act_func(mol_input + mol_message + mol_attn)  # num_bonds x hidden_size
+            struct_message = self.act_func(struct_input + struct_message + struct_attn)  # num_bonds x hidden_size
+            mol_message = self.dropout_layer(mol_message)  # num_bonds x hidden
+            struct_message = self.dropout_layer(struct_message)  # num_bonds x hidden
 
         # Aggregate into hidden state of atoms
         a2x = mol_a2a if self.atom_messages else mol_a2b
@@ -213,14 +212,14 @@ class MPNEncoder(nn.Module):
         a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
         a_input = torch.cat([mol_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
         mol_hiddens = self.act_func(self.W_o1(a_input))  # num_atoms x hidden
-        mol_hiddens = self.dropout_layer1(mol_hiddens)  # num_atoms x hidden
+        mol_hiddens = self.dropout_layer(mol_hiddens)  # num_atoms x hidden
 
         a2x = struct_a2a if self.atom_messages else struct_a2b
         nei_a_message = index_select_ND(struct_message, a2x)  # num_atoms x max_num_bonds x hidden
         a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
         a_input = torch.cat([struct_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
         struct_hiddens = self.act_func(self.W_o2(a_input))  # num_atoms x hidden
-        struct_hiddens = self.dropout_layer2(struct_hiddens)  # num_atoms x hidden
+        struct_hiddens = self.dropout_layer(struct_hiddens)  # num_atoms x hidden
 
         # Readout
         mol_vecs = self.readout(mol_hiddens, mol_a_scope)
