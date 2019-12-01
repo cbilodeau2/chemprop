@@ -127,7 +127,7 @@ class MPNEncoder(nn.Module):
                 struct_features = struct_features.cuda()
 
             if self.features_only:
-                raise RuntimeError("Not supported yet!")
+                return (mol_features, struct_features)
 
         zero_vector = torch.zeros(1,self.hidden_size)
         mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb, mol_a_scope, mol_b_scope = mol_graph.get_components()
@@ -223,10 +223,10 @@ class MPNEncoder(nn.Module):
 
         # Readout
         mol_vecs = self.readout(mol_hiddens, mol_a_scope)
-        if args.cmpd_only:  # remove influence from drug <=> mol
+        if self.args.cmpd_only:  # remove influence from drug <=> mol
             mol_vecs = F.dropout(mol_vecs, p=1.0, training=True)
         struct_vecs = self.readout(struct_hiddens, struct_a_scope)
-        if args.drug_only:  # remove influence from cmpd <=> struct
+        if self.args.drug_only:  # remove influence from cmpd <=> struct
             struct_vecs = F.dropout(struct_vecs, p=1.0, training=True)
 
         if self.use_input_features:  # True if features_path or features_generator specified
