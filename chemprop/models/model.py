@@ -33,8 +33,6 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-        # self.encoder = MPN(args)
-
         # ITERATION 1
         # self.encoder1 = MPN(args)
         # self.encoder2 = MPN(args)
@@ -95,16 +93,16 @@ class MoleculeModel(nn.Module):
         :return: The output of the MoleculeModel.
         """
         smiles, feats = input
-        mol_smiles, mol_feats = [x[0] for x in smiles], [x[0] for x in feats]
-        struct_smiles, struct_feats = [x[1] for x in smiles], [x[1] for x in feats]
-        
+        drug_smiles, drug_feats = [x[0] for x in smiles], [x[0] for x in feats]
+        cmpd_smiles, cmpd_feats = [x[1] for x in smiles], [x[1] for x in feats]
+
         # learnedRep1 = self.encoder1(mol_smiles, mol_feats)
         # learnedRep2 = self.encoder2(struct_smiles, struct_feats)
         # newInput = torch.cat([learnedRep1, learnedRep2], dim=1)
 
-        mol_rep, struct_rep = self.encoder(mol_smiles, struct_smiles, mol_feats, struct_feats)
+        drug_rep, cmpd_rep = self.encoder(drug_smiles, cmpd_smiles, drug_feats, cmpd_feats)
         # print('FINAL OUTPUT SHAPE', mol_rep.shape, struct_rep.shape)
-        newInput = torch.cat([mol_rep, struct_rep], dim=1)
+        newInput = torch.cat([drug_rep, cmpd_rep], dim=1)
         output = self.ffn(newInput)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss

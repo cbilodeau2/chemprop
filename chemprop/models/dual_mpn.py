@@ -24,6 +24,7 @@ class MPNEncoder(nn.Module):
         self.atom_fdim = atom_fdim
         self.bond_fdim = bond_fdim
         self.hidden_size = args.hidden_size
+        self.attn_size = int(args.hidden_size/2)
         self.bias = args.bias
         self.depth = args.depth
         self.dropout = args.dropout
@@ -42,8 +43,7 @@ class MPNEncoder(nn.Module):
         self.dropout_layer2 = nn.Dropout(p=self.dropout)
 
         # Activation
-        self.act_func1 = get_activation_function(args.activation)
-        self.act_func2 = get_activation_function(args.activation)
+        self.act_func = get_activation_function(args.activation)
 
         # Cached zeros
         self.cached_zero_vector = nn.Parameter(torch.zeros(self.hidden_size), requires_grad=False)
@@ -68,7 +68,8 @@ class MPNEncoder(nn.Module):
         self.W_o2 = nn.Linear(self.atom_fdim + self.hidden_size, self.hidden_size)
 
         # Attention
-        self.W_a = nn.Linear(w_h_input_size, self.hidden_size)
+        self.W_q = nn.Linear(w_h_input_size, self.attn_size)
+        self.W_v = nn.Linear(self.hidden_size, self.hidden_size)
 
     def localMsg(self, message, a2b, b2a, b2revb):
         if self.undirected:
@@ -157,45 +158,52 @@ class MPNEncoder(nn.Module):
             mol_input = self.W_i1(mol_f_bonds)  # num_bonds x hidden_size
             struct_input = self.W_i2(struct_f_bonds)  # num_bonds x hidden_size
 
-        mol_message = self.act_func1(mol_input)  # num_bonds x hidden_size
-        struct_message = self.act_func2(struct_input)  # num_bonds x hidden_size
+        mol_message = self.act_func(mol_input)  # num_bonds x hidden_size
+        struct_message = self.act_func(struct_input)  # num_bonds x hidden_size
 
         # Message passing
         for depth in range(self.depth - 1):
             mol_message = self.localMsg(mol_message, mol_a2b, mol_b2a, mol_b2revb)  # num_bonds x hidden
             struct_message = self.localMsg(struct_message, struct_a2b, struct_b2a, struct_b2revb)  # num_bonds x hidden
 
-            mol_attn = self.W_a(mol_message)
-            struct_attn = self.W_a(struct_message)
-
-            # Reshape into batches
-            mol_attn = flat_to_batch(mol_attn, mol_b_scope)
-            struct_attn = flat_to_batch(struct_attn, struct_b_scope)
+            # Project into query space for attn scores
+            mol_attn = self.W_q(mol_message)
+            struct_attn = self.W_q(struct_message)
+            mol_attn = flat_to_batch(mol_attn, mol_b_scope)  # reshape into batches
+            struct_attn = flat_to_batch(struct_attn, struct_b_scope)  # reshape into batches
             # print('HERE2 mol', mol_attn.shape, 'struct', struct_attn.shape)
 
-            scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))
+            # Calculate attn scores
+            scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))  # dot prod
+            scores = scores/np.sqrt(self.attn_size)  # normalize by dim
             scores = F.softmax(scores.masked_fill(scores == 0, -1e9), dim=1)
 
+            # Project into value space for attn summing
+            mol_val = self.W_v(mol_message)
+            struct_val = self.W_v(struct_message)
+            mol_val = flat_to_batch(mol_val, mol_b_scope)  # reshape into batches
+            struct_val = flat_to_batch(struct_val, struct_b_scope)  # reshape into batches
+
             # sum scores * msg of mol
-            mol_add_attn = torch.matmul(scores.unsqueeze(-1), struct_attn.unsqueeze(2))
+            mol_add_attn = torch.matmul(scores.unsqueeze(-1), struct_val.unsqueeze(2))
             mol_add_attn = mol_add_attn.sum(dim=1)
             mol_add_attn = batch_to_flat(mol_add_attn, mol_b_revscope)
 
             scores = torch.transpose(scores, dim0=1, dim1=2)
-            struct_add_attn = torch.matmul(scores.unsqueeze(-1), mol_attn.unsqueeze(2))
+            struct_add_attn = torch.matmul(scores.unsqueeze(-1), mol_val.unsqueeze(2))
             struct_add_attn = struct_add_attn.sum(dim=1)
             struct_add_attn = batch_to_flat(struct_add_attn, struct_b_revscope)
 
             # Add dummy row
-            mol_attn = torch.cat((zero_vector, mol_add_attn), dim=0)
-            struct_attn = torch.cat((zero_vector, struct_add_attn), dim=0)
+            mol_val = torch.cat((zero_vector, mol_add_attn), dim=0)
+            struct_val = torch.cat((zero_vector, struct_add_attn), dim=0)
             # print('attn shape', attn.shape)
 
             mol_message = self.W_h1(mol_message)
             struct_message = self.W_h2(struct_message)
 
-            mol_message = self.act_func1(mol_input + mol_message + mol_attn)  # num_bonds x hidden_size
-            struct_message = self.act_func2(struct_input + struct_message + struct_attn)  # num_bonds x hidden_size
+            mol_message = self.act_func(mol_input + mol_message + mol_val)  # num_bonds x hidden_size
+            struct_message = self.act_func(struct_input + struct_message + struct_val)  # num_bonds x hidden_size
             mol_message = self.dropout_layer1(mol_message)  # num_bonds x hidden
             struct_message = self.dropout_layer2(struct_message)  # num_bonds x hidden
 
@@ -204,14 +212,14 @@ class MPNEncoder(nn.Module):
         nei_a_message = index_select_ND(mol_message, a2x)  # num_atoms x max_num_bonds x hidden
         a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
         a_input = torch.cat([mol_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
-        mol_hiddens = self.act_func1(self.W_o1(a_input))  # num_atoms x hidden
+        mol_hiddens = self.act_func(self.W_o1(a_input))  # num_atoms x hidden
         mol_hiddens = self.dropout_layer1(mol_hiddens)  # num_atoms x hidden
 
         a2x = struct_a2a if self.atom_messages else struct_a2b
         nei_a_message = index_select_ND(struct_message, a2x)  # num_atoms x max_num_bonds x hidden
         a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
         a_input = torch.cat([struct_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
-        struct_hiddens = self.act_func2(self.W_o2(a_input))  # num_atoms x hidden
+        struct_hiddens = self.act_func(self.W_o2(a_input))  # num_atoms x hidden
         struct_hiddens = self.dropout_layer2(struct_hiddens)  # num_atoms x hidden
 
         # Readout
@@ -254,21 +262,23 @@ class DualMPN(nn.Module):
         self.encoder = MPNEncoder(self.args, self.atom_fdim, self.bond_fdim)
 
     def forward(self,
-                mol_batch: Union[List[str], BatchMolGraph],
-                struct_batch: Union[List[str], BatchMolGraph],
-                mol_features: List[np.ndarray] = None,
-                struct_features: List[np.ndarray] = None) -> torch.FloatTensor:
+                drug_batch: Union[List[str], BatchMolGraph],
+                cmpd_batch: Union[List[str], BatchMolGraph],
+                drug_feats: List[np.ndarray] = None,
+                cmpd_feats: List[np.ndarray] = None) -> torch.FloatTensor:
         """
         Encodes a batch of molecular SMILES strings.
 
-        :param batch: A list of SMILES strings or a BatchMolGraph (if self.graph_input is True).
-        :param features_batch: A list of ndarrays containing additional features.
+        :param drug_batch: A list of SMILES strings or a BatchMolGraph (if self.graph_input is True).
+        :param cmpd_batch: A list of SMILES strings or a BatchMolGraph (if self.graph_input is True).
+        :param drug_feats: A list of ndarrays containing additional features.
+        :param cmpd_feats: A list of ndarrays containing additional features.
         :return: A PyTorch tensor of shape (num_molecules, hidden_size) containing the encoding of each molecule.
         """
         if not self.graph_input:  # if features only, batch won't even be used
-            mol_batch = mol2graph(mol_batch, self.args)
-            struct_batch = mol2graph(struct_batch, self.args)
+            drug_batch = mol2graph(drug_batch, self.args)
+            cmpd_batch = mol2graph(cmpd_batch, self.args)
 
-        output = self.encoder.forward(mol_batch, struct_batch, mol_features, struct_features)
+        output = self.encoder.forward(drug_batch, cmpd_batch, drug_feats, cmpd_feats)
 
         return output
