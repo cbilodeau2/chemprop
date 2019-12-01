@@ -106,7 +106,7 @@ class MPNEncoder(nn.Module):
 
         return torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
 
-    def forward(self,
+    def forward(self, # TODO: refactor for consistency. mol <=> drug. struct <=> cmpd.
                 mol_graph: BatchMolGraph, # mols we attend to
                 struct_graph: BatchMolGraph, # structure we are reasoning about
                 mol_features: List[np.ndarray] = None,
@@ -223,7 +223,11 @@ class MPNEncoder(nn.Module):
 
         # Readout
         mol_vecs = self.readout(mol_hiddens, mol_a_scope)
+        if args.cmpd_only:  # remove influence from drug <=> mol
+            mol_vecs = F.dropout(mol_vecs, p=1.0, training=True)
         struct_vecs = self.readout(struct_hiddens, struct_a_scope)
+        if args.drug_only:  # remove influence from cmpd <=> struct
+            struct_vecs = F.dropout(struct_vecs, p=1.0, training=True)
 
         if self.use_input_features:  # True if features_path or features_generator specified
             mol_features = mol_features.to(mol_vecs)

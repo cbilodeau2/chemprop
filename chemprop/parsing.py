@@ -181,6 +181,12 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--atom_messages', action='store_true', default=False,
                         help='Use messages on atoms instead of messages on bonds')
 
+    # Development
+    parser.add_argument('--drug_only', action='store_true', default=False,
+                        help='Uses only learned rep for drug structure')
+    parser.add_argument('--cmpd_only', action='store_true', default=False,
+                        help='Uses only learned rep for cmpd structure')
+
 
 def update_checkpoint_args(args: Namespace):
     """
