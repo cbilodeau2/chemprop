@@ -201,8 +201,8 @@ class MPNEncoder(nn.Module):
             mol_message = self.W_h1(mol_message)
             struct_message = self.W_h2(struct_message)
 
-            mol_message = self.act_func(mol_input + mol_message + mol_attn)  # num_bonds x hidden_size
-            struct_message = self.act_func(struct_input + struct_message + struct_attn)  # num_bonds x hidden_size
+            mol_message = self.act_func(mol_input + mol_message + mol_val)  # num_bonds x hidden_size
+            struct_message = self.act_func(struct_input + struct_message + struct_val)  # num_bonds x hidden_size
             mol_message = self.dropout_layer(mol_message)  # num_bonds x hidden
             struct_message = self.dropout_layer(struct_message)  # num_bonds x hidden
 
