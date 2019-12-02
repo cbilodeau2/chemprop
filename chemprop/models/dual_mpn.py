@@ -24,7 +24,7 @@ class MPNEncoder(nn.Module):
         self.atom_fdim = atom_fdim
         self.bond_fdim = bond_fdim
         self.hidden_size = args.hidden_size
-        self.attn_size = int(args.hidden_size/2)
+        self.attn_size = int(args.hidden_size*args.attn_factor)
         self.bias = args.bias
         self.depth = args.depth
         self.dropout = args.dropout

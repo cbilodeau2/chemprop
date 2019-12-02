@@ -17,6 +17,7 @@ from chemprop.utils import create_logger, makedirs
 
 
 SPACE = {
+    'attn_factor': hp.choice('attn_factor', [0.5, 1.0]),
     'hidden_size': hp.quniform('hidden_size', low=300, high=2400, q=100),
     'depth': hp.quniform('depth', low=2, high=6, q=1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
