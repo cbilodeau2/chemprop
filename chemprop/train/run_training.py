@@ -160,8 +160,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         else:
             debug(f'Building model {model_idx}')
             create_pretrainers(args, logger=logger)
-            debug(f'Loading model {model_idx} encoders from {args.pretrain_dir}')
-            model = load_pretrain(args, logger=logger)
+            model = load_pretrain(model_idx, args, logger=logger)
 
         debug(model)
         debug(f'Number of parameters = {param_count(model):,}')

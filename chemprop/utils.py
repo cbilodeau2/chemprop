@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import pickle as pkl
 from collections import OrderedDict
 from typing import Callable, List, Tuple, Union
 from argparse import Namespace
@@ -13,7 +14,7 @@ from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 
 from chemprop.data import StandardScaler
-from chemprop.models import build_model, MoleculeModel
+from chemprop.models import build_model, MoleculeModel, MPN
 from chemprop.nn_utils import NoamLR, initialize_weights
 
 
@@ -124,9 +125,13 @@ def soft_train_gcn(mol_prefix: str,
                    batch_inp: List[str],
                    target: torch.Tensor,
                    gcn: MPN,
-                   debug: lambda) -> OrderedDict:
+                   cuda: bool,
+                   debug: Callable) -> OrderedDict:
+    if cuda:
+        gcn = gcn.cuda()
+        target = target.cuda()
     initialize_weights(gcn)
-    optimizer = optim.Adam(gcn.parameters(),lr=1e-3)
+    optimizer = Adam(gcn.parameters(),lr=1e-3)
     criterion = nn.MSELoss()
 
     gcn.train()
@@ -137,9 +142,10 @@ def soft_train_gcn(mol_prefix: str,
 
         loss.backward()
         optimizer.step()
-        if epoch%2 == 0:
-            debug(f'Epoch {epoch} with loss {float(loss)/len(batch_inpt)}')
-    debug(f'Compared to embedding norm {target.norm(dim=1).mean()}')
+        if epoch%5 == 0:
+            debug(f'Epoch {epoch} with loss {float(loss)}')
+    loss = criterion(gcn(batch_inp), target)
+    debug(f'Final {mol_prefix} MSE {loss} in context of embedding norm {target.norm(dim=1).mean()}')
 
     state_dict = OrderedDict()
     for key, value in gcn.state_dict().items():
@@ -158,10 +164,12 @@ def create_pretrainers(args: Namespace,
     drug_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/drug_gcn.pt')
     cmpd_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/cmpd_gcn.pt')
 
-    if os.path.exists(drug_path) and os.path.exists(cmpd_path):
+    if not os.path.exists(os.path.join(args.pretrain_dir, f'fold_{fold_num}.pt')):
+        return
+    elif os.path.exists(drug_path) and os.path.exists(cmpd_path):
         return
 
-    makedirs(os.path.join(args.pretrain_dir, f'fold_{fold_num}')
+    makedirs(os.path.join(args.pretrain_dir, f'fold_{fold_num}'))
     with open(os.path.join(args.pretrain_dir, 'embedMap.pkl'),'rb') as f:
         idx_map = pkl.load(f)
         drugIdx = idx_map['drug']
@@ -172,18 +180,23 @@ def create_pretrainers(args: Namespace,
 
     drug_inp = [rev_drugIdx[i] for i in range(len(drugIdx))]
     target = embed['drug.weight']
-    drug_gcn = soft_train_gcn('drug', drug_inp, target, MPN(args), debug)
+    drug_gcn = soft_train_gcn('drug', drug_inp, target, MPN(args), args.cuda, debug)
     torch.save(drug_gcn, drug_path)
+    del drug_gcn
+    torch.cuda.empty_cache()
 
     cmpd_inp = [rev_cmpdIdx[i] for i in range(len(cmpdIdx))]
     target = embed['cmpd.weight']
-    cmpd_gcn = soft_train_gcn('cmpd', cmpd_inp, target, MPN(args), debug)
+    cmpd_gcn = soft_train_gcn('cmpd', cmpd_inp, target, MPN(args), args.cuda, debug)
     torch.save(cmpd_gcn, cmpd_path)
+    del cmpd_gcn
+    torch.cuda.empty_cache()
 
     debug(f'Saved pretrained gcn models to {drug_path} and {cmpd_path}')
 
 
-def load_pretrain(args: Namespace,
+def load_pretrain(model_idx: int,
+                  args: Namespace,
                   cuda: bool = None,
                   logger: logging.Logger = None) -> MoleculeModel:
     """
@@ -199,12 +212,14 @@ def load_pretrain(args: Namespace,
     drug_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/drug_gcn.pt')
     cmpd_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/cmpd_gcn.pt')
 
+    if os.path.exists(drug_path) and os.path.exists(cmpd_path):
+        debug(f'WARNING: Making model {model_idx} from scratch')
+        return build_model(args)
+    debug(f'Loading model {model_idx} encoders from {args.pretrain_dir}')
+
     # Load model and args
     drug_state = torch.load(drug_path, map_location=lambda storage, loc: storage)
     cmpd_state = torch.load(cmpd_path, map_location=lambda storage, loc: storage)
-
-    if current_args is not None:
-        args = current_args
 
     args.cuda = cuda if cuda is not None else args.cuda
 

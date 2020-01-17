@@ -202,7 +202,7 @@ def update_checkpoint_args(args: Namespace):
     for i in range(args.num_folds):
         pretrain_path = os.path.join(args.pretrain_dir, f'fold_{i}.pt')
         if not os.path.exists(pretrain_path):
-            raise ValueError(f'Failed to find {pretrain_path}')
+            print(f'WARNING: Failed to find {pretrain_path}')
 
     if hasattr(args, 'checkpoint_paths') and args.checkpoint_paths is not None:
         return
