@@ -131,7 +131,7 @@ def soft_train_gcn(mol_prefix: str,
         gcn = gcn.cuda()
         target = target.cuda()
     initialize_weights(gcn)
-    optimizer = Adam(gcn.parameters(),lr=1e-3)
+    optimizer = Adam(gcn.parameters(),lr=1e-2)
     criterion = nn.MSELoss()
 
     gcn.train()
@@ -212,7 +212,7 @@ def load_pretrain(model_idx: int,
     drug_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/drug_gcn.pt')
     cmpd_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/cmpd_gcn.pt')
 
-    if os.path.exists(drug_path) and os.path.exists(cmpd_path):
+    if not(os.path.exists(drug_path) and os.path.exists(cmpd_path)):
         debug(f'WARNING: Making model {model_idx} from scratch')
         return build_model(args)
     debug(f'Loading model {model_idx} encoders from {args.pretrain_dir}')
