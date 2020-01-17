@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+from collections import OrderedDict
 from typing import Callable, List, Tuple, Union
 from argparse import Namespace
 
@@ -13,7 +14,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 from chemprop.data import StandardScaler
 from chemprop.models import build_model, MoleculeModel
-from chemprop.nn_utils import NoamLR
+from chemprop.nn_utils import NoamLR, initialize_weights
 
 
 def makedirs(path: str, isfile: bool = False):
@@ -119,21 +120,84 @@ def load_checkpoint(path: str,
     return model
 
 
-def load_pretrain(path: str,
-                  current_args: Namespace = None,
+def soft_train_gcn(mol_prefix: str,
+                   batch_inp: List[str],
+                   target: torch.Tensor,
+                   gcn: MPN,
+                   debug: lambda) -> OrderedDict:
+    initialize_weights(gcn)
+    optimizer = optim.Adam(gcn.parameters(),lr=1e-3)
+    criterion = nn.MSELoss()
+
+    gcn.train()
+    for epoch in range(30):
+        optimizer.zero_grad()
+        output = gcn(batch_inp)
+        loss = criterion(output, target)
+
+        loss.backward()
+        optimizer.step()
+        if epoch%2 == 0:
+            debug(f'Epoch {epoch} with loss {float(loss)/len(batch_inpt)}')
+    debug(f'Compared to embedding norm {target.norm(dim=1).mean()}')
+
+    state_dict = OrderedDict()
+    for key, value in gcn.state_dict().items():
+        new_key = f'{mol_prefix}_encoder.{key}'
+        state_dict[new_key] = value
+    return state_dict
+
+
+def create_pretrainers(args: Namespace,
+                       logger: logging.Logger = None) -> None:
+    """
+    Trains GCN to match given embeddings.
+    """
+    debug = logger.debug if logger is not None else print
+    fold_num = args.fold_num
+    drug_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/drug_gcn.pt')
+    cmpd_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/cmpd_gcn.pt')
+
+    if os.path.exists(drug_path) and os.path.exists(cmpd_path):
+        return
+
+    makedirs(os.path.join(args.pretrain_dir, f'fold_{fold_num}')
+    with open(os.path.join(args.pretrain_dir, 'embedMap.pkl'),'rb') as f:
+        idx_map = pkl.load(f)
+        drugIdx = idx_map['drug']
+        cmpdIdx = idx_map['cmpd']
+        rev_drugIdx = {drugIdx[key]: key for key in drugIdx}
+        rev_cmpdIdx = {cmpdIdx[key]: key for key in cmpdIdx}
+    embed = torch.load(os.path.join(args.pretrain_dir, f'fold_{fold_num}.pt'))
+
+    drug_inp = [rev_drugIdx[i] for i in range(len(drugIdx))]
+    target = embed['drug.weight']
+    drug_gcn = soft_train_gcn('drug', drug_inp, target, MPN(args), debug)
+    torch.save(drug_gcn, drug_path)
+
+    cmpd_inp = [rev_cmpdIdx[i] for i in range(len(cmpdIdx))]
+    target = embed['cmpd.weight']
+    cmpd_gcn = soft_train_gcn('cmpd', cmpd_inp, target, MPN(args), debug)
+    torch.save(cmpd_gcn, cmpd_path)
+
+    debug(f'Saved pretrained gcn models to {drug_path} and {cmpd_path}')
+
+
+def load_pretrain(args: Namespace,
                   cuda: bool = None,
                   logger: logging.Logger = None) -> MoleculeModel:
     """
     Loads a model checkpoint.
 
-    :param path: Path where checkpoint is saved.
-    :param current_args: The current arguments. Replaces the arguments loaded from the checkpoint if provided.
+    :param args: The arguments.
     :param cuda: Whether to move model to cuda.
     :param logger: A logger.
     :return: The loaded MoleculeModel.
     """
     debug = logger.debug if logger is not None else print
-    drug_path, cmpd_path = os.path.join(path, 'drug_gcn.pt'), os.path.join(path, 'cmpd_gcn.pt')
+    fold_num = args.fold_num
+    drug_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/drug_gcn.pt')
+    cmpd_path = os.path.join(args.pretrain_dir, f'fold_{fold_num}/cmpd_gcn.pt')
 
     # Load model and args
     drug_state = torch.load(drug_path, map_location=lambda storage, loc: storage)

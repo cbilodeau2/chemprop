@@ -20,7 +20,7 @@ from chemprop.data.utils import get_class_sizes, get_data, get_task_names, split
 from chemprop.models import build_model
 from chemprop.nn_utils import param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
-    makedirs, save_checkpoint, load_pretrain
+    makedirs, save_checkpoint, load_pretrain, create_pretrainers
 
 
 def run_training(args: Namespace, logger: Logger = None) -> List[float]:
@@ -155,13 +155,13 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             writer = SummaryWriter(logdir=save_dir)
         # Load/build model
         if args.checkpoint_paths is not None:
-            raise ValuError("don't think this should be here?")
-            # debug(f'Loading model {model_idx} from {args.checkpoint_paths[model_idx]}')
-            # model = load_checkpoint(args.checkpoint_paths[model_idx], current_args=args, logger=logger)
+            debug(f'Loading model {model_idx} from {args.checkpoint_paths[model_idx]}')
+            model = load_checkpoint(args.checkpoint_paths[model_idx], current_args=args, logger=logger)
         else:
             debug(f'Building model {model_idx}')
+            create_pretrainers(args, logger=logger)
             debug(f'Loading model {model_idx} encoders from {args.pretrain_dir}')
-            model = load_pretrain(args.pretrain_dir, current_args=args, logger=logger)
+            model = load_pretrain(args, logger=logger)
 
         debug(model)
         debug(f'Number of parameters = {param_count(model):,}')

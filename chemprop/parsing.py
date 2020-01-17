@@ -198,14 +198,11 @@ def update_checkpoint_args(args: Namespace):
 
     :param args: Arguments.
     """
-    assert args.pretrain_dir is None
-    drug_gcn_path = os.path.join(args.pretrain_dir, 'drug_gcn.pt')
-    cmpd_gcn_path = os.path.join(args.pretrain_dir, 'cmpd_gcn.pt')
-
-    if not os.path.exists(drug_gcn_path):
-        raise ValueError(f'Failed to find drug_gcn.pt in "{args.pretrain_dir}"')
-    if not os.path.exists(cmpd_gcn_path):
-        raise ValueError(f'Failed to find cmpd_gcn.pt in "{args.pretrain_dir}"')
+    assert args.pretrain_dir is not None
+    for i in range(args.num_folds):
+        pretrain_path = os.path.join(args.pretrain_dir, f'fold_{i}.pt')
+        if not os.path.exists(pretrain_path):
+            raise ValueError(f'Failed to find {pretrain_path}')
 
     if hasattr(args, 'checkpoint_paths') and args.checkpoint_paths is not None:
         return

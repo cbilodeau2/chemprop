@@ -23,6 +23,7 @@ def cross_validate(args: Namespace, logger: Logger = None) -> Tuple[float, float
     all_scores = []
     for fold_num in range(args.num_folds):
         info(f'Fold {fold_num}')
+        args.fold_num = fold_num
         args.seed = init_seed + fold_num
         args.save_dir = os.path.join(save_dir, f'fold_{fold_num}')
         makedirs(args.save_dir)
