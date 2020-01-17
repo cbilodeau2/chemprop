@@ -67,7 +67,7 @@ def save_checkpoint(path: str,
     torch.save(state, path)
 
 
-def load_checkpoint(path: str,
+def load_checkpoint(paths: List[str],
                     current_args: Namespace = None,
                     cuda: bool = None,
                     logger: logging.Logger = None) -> MoleculeModel:
@@ -81,9 +81,11 @@ def load_checkpoint(path: str,
     :return: The loaded MoleculeModel.
     """
     debug = logger.debug if logger is not None else print
+    drug_path, cmpd_path = paths
 
     # Load model and args
-    state = torch.load(path, map_location=lambda storage, loc: storage)
+    drug_state = torch.load(drug_path, map_location=lambda storage, loc: storage)
+    cmpd_state = torch.load(cmpd_path, map_location=lambda storage, loc: storage)
     args, loaded_state_dict = state['args'], state['state_dict']
 
     if current_args is not None:
@@ -93,25 +95,18 @@ def load_checkpoint(path: str,
 
     # Build model
     model = build_model(args)
-    model_state_dict = model.state_dict()
+    unmatched = sum(['ffn' in key for key in model.state_dict().keys()])
+    load_res = model.load_state_dict(drug_state, strict=False)
+    if sum(['ffn' in key for key in load_res.missing_keys]) != unmatched:
+        debug(f'Issues loading from drug_state: {load_res}')
 
-    # Skip missing parameters and parameters of mismatched size
-    pretrained_state_dict = {}
-    for param_name in loaded_state_dict.keys():
+    load_res = model.load_state_dict(cmpd_state, strict=False)
+    if sum(['ffn' in key for key in load_res.missing_keys]) != unmatched:
+        debug(f'Issues loading from cmpd_state: {load_res}')
 
-        if param_name not in model_state_dict:
-            debug(f'Pretrained parameter "{param_name}" cannot be found in model parameters.')
-        elif model_state_dict[param_name].shape != loaded_state_dict[param_name].shape:
-            debug(f'Pretrained parameter "{param_name}" '
-                  f'of shape {loaded_state_dict[param_name].shape} does not match corresponding '
-                  f'model parameter of shape {model_state_dict[param_name].shape}.')
-        else:
-            debug(f'Loading pretrained parameter "{param_name}".')
-            pretrained_state_dict[param_name] = loaded_state_dict[param_name]
-
-    # Load pretrained weights
-    model_state_dict.update(pretrained_state_dict)
-    model.load_state_dict(model_state_dict)
+    for name, param in model.named_parameters():
+        if 'ffn' not in name:
+            param.requires_grad = False
 
     if cuda:
         debug('Moving model to cuda')

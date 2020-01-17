@@ -155,8 +155,8 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             writer = SummaryWriter(logdir=save_dir)
         # Load/build model
         if args.checkpoint_paths is not None:
-            debug(f'Loading model {model_idx} from {args.checkpoint_paths[model_idx]}')
-            model = load_checkpoint(args.checkpoint_paths[model_idx], current_args=args, logger=logger)
+            debug(f'Loading model {model_idx} encoders from {args.checkpoint_dir}')
+            model = load_checkpoint(args.checkpoint_paths, current_args=args, logger=logger)
         else:
             debug(f'Building model {model_idx}')
             model = build_model(args)
@@ -181,6 +181,12 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         best_epoch, n_iter = 0, 0
         for epoch in trange(args.epochs):
             debug(f'Epoch {epoch}')
+
+            if epoch == args.frozen_epochs:
+                debug(f'Finetuning GCN layers too at epoch {args.frozen_epochs}')
+                for name, param in model.named_parameters():
+                    if 'cached_zero_vector' not in name:
+                        param.requires_grad = True
 
             n_iter = train(
                 model=model,

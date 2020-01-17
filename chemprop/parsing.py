@@ -186,6 +186,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Masks learned rep of cmpd structure')
     parser.add_argument('--cmpd_only', action='store_true', default=False,
                         help='Masks learned rep of drug structure')
+    parser.add_argument('--frozen_epochs', type=int, default=20,
+                        help='How many epochs train ffn before training all')
 
 
 def update_checkpoint_args(args: Namespace):
@@ -197,24 +199,23 @@ def update_checkpoint_args(args: Namespace):
     if hasattr(args, 'checkpoint_paths') and args.checkpoint_paths is not None:
         return
 
-    if args.checkpoint_dir is not None and args.checkpoint_path is not None:
-        raise ValueError('Only one of checkpoint_dir and checkpoint_path can be specified.')
+    assert args.checkpoint_path is None
 
     if args.checkpoint_dir is None:
         args.checkpoint_paths = [args.checkpoint_path] if args.checkpoint_path is not None else None
         return
 
-    args.checkpoint_paths = []
+    drug_gcn_path = os.path.join(args.checkpoint_dir, 'drug_gcn.pt')
+    cmpd_gcn_path = os.path.join(args.checkpoint_dir, 'cmpd_gcn.pt')
 
-    for root, _, files in os.walk(args.checkpoint_dir):
-        for fname in files:
-            if fname.endswith('.pt'):
-                args.checkpoint_paths.append(os.path.join(root, fname))
+    args.checkpoint_paths = [drug_gcn_path, cmpd_gcn_path]
 
-    args.ensemble_size = len(args.checkpoint_paths)
+    args.ensemble_size = 1
 
-    if args.ensemble_size == 0:
-        raise ValueError(f'Failed to find any model checkpoints in directory "{args.checkpoint_dir}"')
+    if not os.path.exists(drug_gcn_path):
+        raise ValueError(f'Failed to find drug_gcn.pt in "{args.checkpoint_dir}"')
+    if not os.path.exists(cmpd_gcn_path):
+        raise ValueError(f'Failed to find cmpd_gcn.pt in "{args.checkpoint_dir}"')
 
 
 def modify_predict_args(args: Namespace):
