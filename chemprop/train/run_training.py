@@ -20,7 +20,7 @@ from chemprop.data.utils import get_class_sizes, get_data, get_task_names, split
 from chemprop.models import build_model
 from chemprop.nn_utils import param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
-    makedirs, save_checkpoint
+    makedirs, save_checkpoint, load_pretrain
 
 
 def run_training(args: Namespace, logger: Logger = None) -> List[float]:
@@ -155,11 +155,13 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             writer = SummaryWriter(logdir=save_dir)
         # Load/build model
         if args.checkpoint_paths is not None:
-            debug(f'Loading model {model_idx} encoders from {args.checkpoint_dir}')
-            model = load_checkpoint(args.checkpoint_paths, current_args=args, logger=logger)
+            raise ValuError("don't think this should be here?")
+            # debug(f'Loading model {model_idx} from {args.checkpoint_paths[model_idx]}')
+            # model = load_checkpoint(args.checkpoint_paths[model_idx], current_args=args, logger=logger)
         else:
             debug(f'Building model {model_idx}')
-            model = build_model(args)
+            debug(f'Loading model {model_idx} encoders from {args.pretrain_dir}')
+            model = load_pretrain(args.pretrain_dir, current_args=args, logger=logger)
 
         debug(model)
         debug(f'Number of parameters = {param_count(model):,}')
@@ -227,12 +229,12 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             if args.minimize_score and avg_val_score < best_score or \
                     not args.minimize_score and avg_val_score > best_score:
                 best_score, best_epoch = avg_val_score, epoch
-                save_checkpoint(os.path.join(save_dir, 'model.pt'), model, scaler, drug_scaler, cmpd_scaler, args)        
+                save_checkpoint(os.path.join(save_dir, 'model.pt'), model, scaler, drug_scaler, cmpd_scaler, args)
 
         # Evaluate on test set using model with best validation score
         info(f'Model {model_idx} best validation {args.metric} = {best_score:.6f} on epoch {best_epoch}')
         model = load_checkpoint(os.path.join(save_dir, 'model.pt'), cuda=args.cuda, logger=logger)
-        
+
         test_preds = predict(
             model=model,
             data=test_data,
