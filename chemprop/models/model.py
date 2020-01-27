@@ -100,13 +100,13 @@ class MoleculeModel(nn.Module):
             learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
             newInput.append(learned_cmpd)
 
-        assert len(newInput) != 0
-        if len(newInput) > 1:
-            newInput = torch.cat(newInput, dim=1)
-        else:
-            newInput = newInput[0]
+        # assert len(newInput) != 0
+        # if len(newInput) > 1:
+            # newInput = torch.cat(newInput, dim=1)
+        # else:
+            # newInput = newInput[0]
 
-        output = self.ffn(newInput)
+        output = torch.bmm(newInput[0].unsqueeze(1), newInput[1].unsqueeze(2)).squeeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if self.classification and not self.training:

@@ -80,8 +80,8 @@ def train(model: nn.Module,
         loss_sum += loss.item()
         iter_count += len(mol_batch)
 
-        loss.backward()
-        optimizer.step()
+        # loss.backward()
+        # optimizer.step()
 
         if isinstance(scheduler, NoamLR):
             scheduler.step()

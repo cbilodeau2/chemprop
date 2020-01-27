@@ -186,7 +186,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             if epoch == args.frozen_epochs:
                 debug(f'Finetuning GCN layers too at epoch {args.frozen_epochs}')
                 for name, param in model.named_parameters():
-                    if 'cached_zero_vector' not in name:
+                    if ('ffn' in name or 'encoder' in name) and 'cached_zero_vector' not in name:
                         param.requires_grad = True
 
             n_iter = train(

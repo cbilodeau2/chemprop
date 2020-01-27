@@ -237,6 +237,7 @@ def load_pretrain(model_idx: int,
     for name, param in model.named_parameters():
         if 'ffn' not in name:
             param.requires_grad = False
+        print(name, param.requires_grad)
 
     if cuda:
         debug('Moving model to cuda')
