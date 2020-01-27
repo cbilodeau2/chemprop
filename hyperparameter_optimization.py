@@ -17,12 +17,12 @@ from chemprop.utils import create_logger, makedirs
 
 
 SPACE = {
-    'hidden_size': hp.quniform('hidden_size', low=300, high=2400, q=100),
+    'frozen_epochs': hp.choice('frozen_epochs', [0, 10, 20, 30]),
     'depth': hp.quniform('depth', low=2, high=6, q=1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
     'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1)
 }
-INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers']
+INT_KEYS = ['frozen_epochs', 'depth', 'ffn_num_layers']
 
 
 def grid_search(args: Namespace):
