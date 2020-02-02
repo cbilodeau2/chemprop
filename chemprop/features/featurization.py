@@ -1,7 +1,9 @@
 from argparse import Namespace
 from typing import List, Tuple, Union
+from .functional_groups import FunctionalGroupFeaturizer
 
 from rdkit import Chem
+import numpy as np
 import torch
 
 # Atom feature sizes
@@ -27,8 +29,10 @@ THREE_D_DISTANCE_MAX = 20
 THREE_D_DISTANCE_STEP = 1
 THREE_D_DISTANCE_BINS = list(range(0, THREE_D_DISTANCE_MAX + 1, THREE_D_DISTANCE_STEP))
 
+MACCS = FunctionalGroupFeaturizer()
+
 # len(choices) + 1 to include room for uncommon values; + 2 at end for IsAromatic and mass
-ATOM_FDIM = sum(len(choices) + 1 for choices in ATOM_FEATURES.values()) + 2
+ATOM_FDIM = sum(len(choices) + 1 for choices in ATOM_FEATURES.values()) + 2 + MACCS.get_dim()
 BOND_FDIM = 14
 
 # Memoization
@@ -156,11 +160,13 @@ class MolGraph:
 
         # fake the number of "atoms" if we are collapsing substructures
         self.n_atoms = mol.GetNumAtoms()
-        
+
         # Get atom features
         for i, atom in enumerate(mol.GetAtoms()):
             self.f_atoms.append(atom_features(atom))
         self.f_atoms = [self.f_atoms[i] for i in range(self.n_atoms)]
+        maccs = MACCS.featurize(mol)
+        self.f_atoms = np.hstack([np.array(self.f_atoms), maccs]).tolist()
 
         for _ in range(self.n_atoms):
             self.a2b.append([])
@@ -315,5 +321,5 @@ def mol2graph(smiles_batch: List[str],
             if not args.no_cache:
                 SMILES_TO_GRAPH[smiles] = mol_graph
         mol_graphs.append(mol_graph)
-    
+
     return BatchMolGraph(mol_graphs, args)
