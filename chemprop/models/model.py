@@ -32,8 +32,8 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-        self.drug_encoder = MPN(args) if not args.cmpd_only else None
-        self.cmpd_encoder = MPN(args) if not args.drug_only else None
+        self.drug_encoder = MPN(args)
+        self.cmpd_encoder = MPN(args)
 
     def create_ffn(self, args: Namespace):
         """
@@ -94,27 +94,12 @@ class MoleculeModel(nn.Module):
         """
         smiles, feats = input
 
-        newInput = []
-        if self.drug_encoder:
-            learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
-            newInput.append(learned_drug)
-        if self.cmpd_encoder:
-            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
-            newInput.append(learned_cmpd)
+        learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
+        learned_drug = learned_drug.unsqueeze(1)
+        learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+        learned_cmpd = learned_cmpd.unsqueeze(-1)
 
-        assert len(newInput) != 0
-
-        if len(newInput) > 1:
-            if self.ops == 'plus':
-                newInput = newInput[0] + newInput[1]
-            elif self.ops == 'minus':
-                newInput = newInput[0] - newInput[1]
-            else:
-                newInput = torch.cat(newInput, dim=1)
-        else:
-            newInput = newInput[0]
-
-        output = self.ffn(newInput)
+        output = torch.bmm(learned_drug, learned_cmpd).squeeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if self.classification and not self.training:
@@ -141,7 +126,6 @@ def build_model(args: Namespace) -> nn.Module:
 
     model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass')
     model.create_encoder(args)
-    model.create_ffn(args)
 
     initialize_weights(model)
 

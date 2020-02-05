@@ -304,10 +304,10 @@ def modify_train_args(args: Namespace):
         else:
             args.metric = 'rmse'
 
-    if not ((args.dataset_type == 'classification' and args.metric in ['auc', 'prc-auc', 'accuracy']) or
-            (args.dataset_type == 'regression' and args.metric in ['rmse', 'mae', 'mse', 'r2']) or
-            (args.dataset_type == 'multiclass' and args.metric in ['cross_entropy', 'accuracy'])):
-        raise ValueError(f'Metric "{args.metric}" invalid for dataset type "{args.dataset_type}".')
+    # if not ((args.dataset_type == 'classification' and args.metric in ['auc', 'prc-auc', 'accuracy']) or
+            # (args.dataset_type == 'regression' and args.metric in ['rmse', 'mae', 'mse', 'r2']) or
+            # (args.dataset_type == 'multiclass' and args.metric in ['cross_entropy', 'accuracy'])):
+        # raise ValueError(f'Metric "{args.metric}" invalid for dataset type "{args.dataset_type}".')
 
     args.minimize_score = args.metric in ['rmse', 'mae', 'mse', 'cross_entropy']
 
