@@ -194,6 +194,8 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--ops', type=str, default='concat',
                         choices=['plus', 'minus', 'concat'],
                         help='Operation for embeddings')
+    parser.add_argument('--shared', action='store_true', default=False,
+                        help='Use same GCNs for both drug and cmpd')
 
 
 def update_checkpoint_args(args: Namespace):

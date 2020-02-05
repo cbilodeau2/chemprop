@@ -33,7 +33,8 @@ class MoleculeModel(nn.Module):
         :param args: Arguments.
         """
         self.drug_encoder = MPN(args)
-        self.cmpd_encoder = MPN(args)
+        if not args.shared:
+            self.cmpd_encoder = MPN(args)
 
     def create_ffn(self, args: Namespace):
         """
@@ -96,7 +97,10 @@ class MoleculeModel(nn.Module):
 
         learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
         learned_drug = learned_drug.unsqueeze(1)
-        learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+        if args.shared:
+            learned_cmpd = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
+        else:
+            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
         learned_cmpd = learned_cmpd.unsqueeze(-1)
 
         output = torch.bmm(learned_drug, learned_cmpd).squeeze(-1)
