@@ -32,8 +32,9 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
+        self.shared = args.shared
         self.drug_encoder = MPN(args)
-        if not args.shared:
+        if self.shared:
             self.cmpd_encoder = MPN(args)
 
     def create_ffn(self, args: Namespace):
@@ -97,7 +98,7 @@ class MoleculeModel(nn.Module):
 
         learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
         learned_drug = learned_drug.unsqueeze(1)
-        if args.shared:
+        if self.shared:
             learned_cmpd = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
         else:
             learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
