@@ -46,6 +46,9 @@ def add_predict_args(parser: ArgumentParser):
     parser.add_argument('--config_path', type=str,
                         help='Path to a .json file containing arguments. Any arguments present in the config'
                              'file will override arguments specified via the command line or by the defaults.')
+    parser.add_argument('--ops', type=str, default='concat',
+                        choices=['plus', 'minus', 'concat'],
+                        help='Operation for embeddings')
 
 
 def add_train_args(parser: ArgumentParser):
@@ -182,6 +185,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Use messages on atoms instead of messages on bonds')
 
     # Experiment
+    parser.add_argument('--scale_lr', action='store_true', default=False,
+                        help='Scale LR based on batch size')
     parser.add_argument('--drug_only', action='store_true', default=False,
                         help='Masks learned rep of cmpd structure')
     parser.add_argument('--cmpd_only', action='store_true', default=False,
@@ -190,6 +195,9 @@ def add_train_args(parser: ArgumentParser):
                         help='Directory to find pretrained gcn')
     parser.add_argument('--frozen_epochs', type=int, default=20,
                         help='How many epochs train ffn before training all')
+    parser.add_argument('--ops', type=str, default='concat',
+                        choices=['plus', 'minus', 'concat'],
+                        help='Operation for embeddings')
 
 
 def update_checkpoint_args(args: Namespace):
@@ -281,6 +289,11 @@ def modify_train_args(args: Namespace):
 
     assert args.data_path is not None
     assert args.dataset_type is not None
+    assert not (args.drug_only and args.cmpd_only)
+    assert args.ops == 'concat'
+
+    if args.drug_only or args.cmpd_only:
+        assert args.ops == 'concat'
 
     if args.save_dir is not None:
         makedirs(args.save_dir)
@@ -310,7 +323,7 @@ def modify_train_args(args: Namespace):
     args.minimize_score = args.metric in ['rmse', 'mae', 'mse', 'cross_entropy']
 
     update_checkpoint_args(args)
-    
+
     if args.features_only:
         assert args.features_generator or args.features_path
 
@@ -320,6 +333,11 @@ def modify_train_args(args: Namespace):
         assert not args.features_scaling
 
     args.num_lrs = 1
+    if args.scale_lr:
+        scale = args.batch_size/50  # default batch size
+        args.init_lr *= scale
+        args.max_lr *= scale
+        args.final_lr *= scale
 
     if args.ffn_hidden_size is None:
         args.ffn_hidden_size = args.hidden_size
