@@ -34,7 +34,7 @@ class MoleculeModel(nn.Module):
         """
         self.shared = args.shared
         self.drug_encoder = MPN(args)
-        if self.shared:
+        if not self.shared:
             self.cmpd_encoder = MPN(args)
 
     def create_ffn(self, args: Namespace):
