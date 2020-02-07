@@ -37,56 +37,6 @@ class MoleculeModel(nn.Module):
         if not self.shared:
             self.cmpd_encoder = MPN(args)
 
-    def create_ffn(self, args: Namespace):
-        """
-        Creates the feed-forward network for the model.
-
-        :param args: Arguments.
-        """
-        self.multiclass = args.dataset_type == 'multiclass'
-        self.ops = args.ops
-
-        if self.multiclass:
-            self.num_classes = args.multiclass_num_classes
-        if args.features_only:
-            first_linear_dim = args.features_size
-        else:
-            first_linear_dim = args.hidden_size*2
-            if args.use_input_features:
-                first_linear_dim += args.features_dim
-
-        if args.drug_only or args.cmpd_only or self.ops != 'concat':
-            first_linear_dim = int(first_linear_dim/2)
-
-        dropout = nn.Dropout(args.dropout)
-        activation = get_activation_function(args.activation)
-
-        # Create FFN layers
-        if args.ffn_num_layers == 1:
-            ffn = [
-                dropout,
-                nn.Linear(first_linear_dim, args.output_size)
-            ]
-        else:
-            ffn = [
-                dropout,
-                nn.Linear(first_linear_dim, args.ffn_hidden_size)
-            ]
-            for _ in range(args.ffn_num_layers - 2):
-                ffn.extend([
-                    activation,
-                    dropout,
-                    nn.Linear(args.ffn_hidden_size, args.ffn_hidden_size),
-                ])
-            ffn.extend([
-                activation,
-                dropout,
-                nn.Linear(args.ffn_hidden_size, args.output_size),
-            ])
-
-        # Create FFN model
-        self.ffn = nn.Sequential(*ffn)
-
     def forward(self, *input):
         """
         Runs the MoleculeModel on input.
@@ -107,7 +57,7 @@ class MoleculeModel(nn.Module):
         output = torch.bmm(learned_drug, learned_cmpd).squeeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if self.classification and not self.training:
+        if self.classification and not self.training and args.loss_func != 'mse':
             output = self.sigmoid(output)
         if self.multiclass:
             output = output.reshape((output.size(0), -1, self.num_classes)) # batch size x num targets x num classes per target

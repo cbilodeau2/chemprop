@@ -123,6 +123,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Random seed to use when splitting data into train/val/test sets.'
                              'When `num_folds` > 1, the first fold uses this seed and all'
                              'subsequent folds add 1 to the seed.')
+    parser.add_argument('--loss_func', type=str, default=None, choices=['mse'],
+                        help='Determined by dataset_type if not set')
     parser.add_argument('--metric', type=str, default=None,
                         choices=['auc', 'prc-auc', 'rmse', 'mae', 'mse', 'r2', 'accuracy', 'cross_entropy'],
                         help='Metric to use during evaluation.'
