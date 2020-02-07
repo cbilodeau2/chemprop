@@ -164,6 +164,7 @@ def add_train_args(parser: ArgumentParser):
                         help='Turn off scaling of features')
     parser.add_argument('--train_all', action='store_true', default=False,
                         help='Train model for all folds, even if test fold cannot be evaluated.')
+    parser.add_argument('--neg_weight', type=float, default=1.0, help='Weighting for negative points')
 
     # Model arguments
     parser.add_argument('--ensemble_size', type=int, default=1,
