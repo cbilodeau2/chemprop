@@ -10,7 +10,7 @@ from chemprop.nn_utils import get_activation_function, initialize_weights
 class MoleculeModel(nn.Module):
     """A MoleculeModel is a model which contains a message passing network following by feed-forward layers."""
 
-    def __init__(self, classification: bool, multiclass: bool):
+    def __init__(self, classification: bool, multiclass: bool, mse: bool):
         """
         Initializes the MoleculeModel.
 
@@ -20,7 +20,7 @@ class MoleculeModel(nn.Module):
 
         self.classification = classification
         if self.classification:
-            self.sigmoid = nn.Sigmoid()
+            self.sigmoid = nn.Sigmoid() if not mse else nn.Identity()
         self.multiclass = multiclass
         if self.multiclass:
             self.multiclass_softmax = nn.Softmax(dim=2)
@@ -57,7 +57,7 @@ class MoleculeModel(nn.Module):
         output = torch.bmm(learned_drug, learned_cmpd).squeeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if self.classification and not self.training and args.loss_func != 'mse':
+        if self.classification and not self.training:  # is identity if mse loss
             output = self.sigmoid(output)
         if self.multiclass:
             output = output.reshape((output.size(0), -1, self.num_classes)) # batch size x num targets x num classes per target
@@ -79,7 +79,7 @@ def build_model(args: Namespace) -> nn.Module:
     if args.dataset_type == 'multiclass':
         args.output_size *= args.multiclass_num_classes
 
-    model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass')
+    model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass', mse=args.loss_func == 'mse')
     model.create_encoder(args)
 
     initialize_weights(model)

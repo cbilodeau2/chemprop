@@ -99,10 +99,6 @@ if __name__ == '__main__':
                         help='Number of hyperparameter choices to try')
     parser.add_argument('--fix_dim', action='store_true', default=False,
                         help='If set, does not optimize hidden size')
-    # parser.add_argument('--config_save_path', type=str,
-                        # help='Path to .json file where best hyperparameter settings will be written')
-    # parser.add_argument('--log_dir', type=str,
-                        # help='(Optional) Path to a directory where all results of the hyperparameter optimization will be written')
     args = parser.parse_args()
     modify_train_args(args)
 
@@ -115,4 +111,5 @@ if __name__ == '__main__':
         del INT_KEYS[INT_KEYS.index('hidden_size')]
 
     start = time.time()
+    grid_search(args)
     print('Execution time:', (time.time()-start)/3600, 'hrs')
