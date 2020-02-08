@@ -18,13 +18,8 @@ class MoleculeModel(nn.Module):
         """
         super(MoleculeModel, self).__init__()
 
-        self.classification = classification
-        if self.classification:
-            self.sigmoid = nn.Sigmoid() if not mse else nn.Identity()
-        self.multiclass = multiclass
-        if self.multiclass:
-            self.multiclass_softmax = nn.Softmax(dim=2)
-        assert not (self.classification and self.multiclass)
+        self.softmax=nn.LogSoftmax(dim=0)
+        assert (classification and not multiclass)
 
     def create_encoder(self, args: Namespace):
         """
@@ -44,25 +39,25 @@ class MoleculeModel(nn.Module):
         :param input: Input.
         :return: The output of the MoleculeModel.
         """
-        smiles, feats = input
+        smiles, lengths = input
 
-        learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
+        learned_drug = self.drug_encoder([x[0] for x in smiles])
         learned_drug = learned_drug.unsqueeze(1)
         if self.shared:
-            learned_cmpd = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
+            learned_cmpd = self.drug_encoder([x[0] for x in smiles])
         else:
-            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles])
         learned_cmpd = learned_cmpd.unsqueeze(-1)
 
         output = torch.bmm(learned_drug, learned_cmpd).squeeze(-1)
 
-        # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if self.classification and not self.training:  # is identity if mse loss
-            output = self.sigmoid(output)
-        if self.multiclass:
-            output = output.reshape((output.size(0), -1, self.num_classes)) # batch size x num targets x num classes per target
-            if not self.training:
-                output = self.multiclass_softmax(output) # to get probabilities during evaluation, but not during training as we're using CrossEntropyLoss
+        if self.training:
+            start, ret = 0, []
+            for size in lengths:
+                ret.append(self.softmax(output[start:start+size])[0])  # only the pos one
+                start += size
+            ret = torch.cat(ret)
+            return ret
 
         return output
 
@@ -77,7 +72,7 @@ def build_model(args: Namespace) -> nn.Module:
     output_size = args.num_tasks
     args.output_size = output_size
     if args.dataset_type == 'multiclass':
-        args.output_size *= args.multiclass_num_classes
+        raise NotImplementedError
 
     model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass', mse=args.loss_func == 'mse')
     model.create_encoder(args)

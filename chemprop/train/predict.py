@@ -10,7 +10,7 @@ from chemprop.data import MolPairDataset, StandardScaler
 
 
 def predict(model: nn.Module,
-            data: MolPairDataset,
+            data: MolPairDataset, # never predict on StratMolPair so should be fine
             batch_size: int,
             scaler: StandardScaler = None) -> List[List[float]]:
     """

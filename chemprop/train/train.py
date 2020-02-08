@@ -9,12 +9,12 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from tqdm import trange
 
-from chemprop.data import MolPairDataset
+from chemprop.data import MolPairDataset, StratMolPairDataset
 from chemprop.nn_utils import compute_gnorm, compute_pnorm, NoamLR
 
 
 def train(model: nn.Module,
-          data: Union[MolPairDataset, List[MolPairDataset]],
+          data: Union[StratMolPairDataset, List[StratMolPairDataset]],
           loss_func: Callable,
           optimizer: Optimizer,
           scheduler: _LRScheduler,
@@ -44,41 +44,27 @@ def train(model: nn.Module,
 
     loss_sum, iter_count = 0, 0
 
-    num_iters = len(data) // args.batch_size * args.batch_size  # don't use the last batch if it's small, for stability
+    # num_iters = len(data) // args.batch_size * args.batch_size  # don't use the last batch if it's small, for stability
 
     iter_size = args.batch_size
 
-    for i in trange(0, num_iters, iter_size):
-        # Prepare batch
-        if i + args.batch_size > len(data):
-            break
-        mol_batch = MolPairDataset(data[i:i + args.batch_size])
-        smiles_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.features(), mol_batch.targets()
-        batch = smiles_batch
-        mask = torch.Tensor([[x is not None for x in tb] for tb in target_batch])
+    for i in trange(0, len(data), iter_size):
+        mol_batch, lengths = data[i:i + args.batch_size]
+        mol_batch = MolPairDataset(mol_batch)
+
+        batch, target_batch = mol_batch.smiles(), mol_batch.targets()
         targets = torch.Tensor([[0 if x is None else x for x in tb] for tb in target_batch])
 
         if next(model.parameters()).is_cuda:
-            mask, targets = mask.cuda(), targets.cuda()
-
-        if args.neg_weight != 1:  # not implemented for multiclass
-            class_weights = torch.Tensor([[args.neg_weight if x==0 else 1 for x in tb] for tb in targets])
-        else:
-            class_weights = torch.ones(targets.shape)
-
-        if args.cuda:
-            class_weights = class_weights.cuda()
+            targets = targets.cuda()
 
         # Run model
         model.zero_grad()
-        preds = model(batch, features_batch)
+        preds = model(batch, lengths)
 
-        if args.dataset_type == 'multiclass':
-            targets = targets.long()
-            loss = torch.cat([loss_func(preds[:, target_index, :], targets[:, target_index]).unsqueeze(1) for target_index in range(preds.size(1))], dim=1) * class_weights * mask
-        else:
-            loss = loss_func(preds, targets) * class_weights * mask
-        loss = loss.sum() / mask.sum()
+        # Output only the positive ones
+        loss = loss_func(preds.unsqueeze(-1), torch.zeros(preds.shape, dtype=torch.long))
+        loss = loss.sum() / targets.sum()
 
         loss_sum += loss.item()
         iter_count += len(mol_batch)

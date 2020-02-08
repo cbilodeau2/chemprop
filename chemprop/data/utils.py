@@ -10,7 +10,7 @@ from rdkit import Chem
 import numpy as np
 from tqdm import tqdm
 
-from .data import MolPairDatapoint, MolPairDataset
+from .data import MolPairDatapoint, MolPairDataset, StratMolPairDataset
 from .scaffold import log_scaffold_stats, scaffold_split
 from chemprop.features import load_features
 
@@ -202,7 +202,7 @@ def split_data(data: MolPairDataset,
                sizes: Tuple[float, float, float] = (0.8, 0.1, 0.1),
                seed: int = 0,
                args: Namespace = None,
-               logger: Logger = None) -> Tuple[MolPairDataset,
+               logger: Logger = None) -> Tuple[StratMolPairDataset,
                                                MolPairDataset,
                                                MolPairDataset]:
     """
@@ -226,69 +226,52 @@ def split_data(data: MolPairDataset,
         folds_file = val_fold_index = test_fold_index = None
 
     if split_type == 'crossval':
-        index_set = args.crossval_index_sets[args.seed]
-        data_split = []
-        for split in range(3):
-            split_indices = []
-            for index in index_set[split]:
-                with open(os.path.join(args.crossval_index_dir, f'{index}.pkl'), 'rb') as rf:
-                    split_indices.extend(pickle.load(rf))
-            data_split.append([data[i] for i in split_indices])
-        train, val, test = tuple(data_split)
-        return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
-
+        raise NotImplementedError
     elif split_type == 'index_predetermined':
-        split_indices = args.crossval_index_sets[args.seed]
-        assert len(split_indices) == 3
-        data_split = []
-        for split in range(3):
-            data_split.append([data[i] for i in split_indices[split]])
-        train, val, test = tuple(data_split)
-        return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
-
-    elif split_type in ['predetermined', 'loocv']:
-        if not val_fold_index:
-            assert sizes[2] == 0  # test set is created separately so use all of the other data for train and val
-        assert folds_file is not None
-        assert test_fold_index is not None
-
-        try:
-            with open(folds_file, 'rb') as f:
-                all_fold_indices = pickle.load(f)
-        except UnicodeDecodeError:
-            with open(folds_file, 'rb') as f:
-                all_fold_indices = pickle.load(f, encoding='latin1')  # in case we're loading indices from python2
-        # assert len(data) == sum([len(fold_indices) for fold_indices in all_fold_indices])
-
-        log_scaffold_stats(data, all_fold_indices, logger=logger)
-
-        folds = [[data[i] for i in fold_indices] for fold_indices in all_fold_indices]
-
-        test = folds[test_fold_index]
-        if val_fold_index is not None:
-            val = folds[val_fold_index]
-
-        train_val = []
-        for i in range(len(folds)):
-            if i != test_fold_index and (val_fold_index is None or i != val_fold_index):
-                train_val.extend(folds[i])
-
-        if val_fold_index is not None:
-            train = train_val
-        else:
-            random.seed(seed)
-            random.shuffle(train_val)
-            train_size = int(sizes[0] * len(train_val))
-            train = train_val[:train_size]
-            val = train_val[train_size:]
-
-            train, val = _assure_val_split(train, val, train_size, seed)
-
-        return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
-
+        raise NotImplementedError
     elif split_type == 'scaffold_balanced':
         raise NotImplementedError('not valid for pairs yet')
-        # return scaffold_split(data, sizes=sizes, balanced=True, seed=seed, logger=logger)
+
+    elif split_type in ['predetermined', 'loocv']:
+        raise NotImplementedError('not valid for pairs yet')
+        # if not val_fold_index:
+            # assert sizes[2] == 0  # test set is created separately so use all of the other data for train and val
+        # assert folds_file is not None
+        # assert test_fold_index is not None
+
+        # try:
+            # with open(folds_file, 'rb') as f:
+                # all_fold_indices = pickle.load(f)
+        # except UnicodeDecodeError:
+            # with open(folds_file, 'rb') as f:
+                # all_fold_indices = pickle.load(f, encoding='latin1')  # in case we're loading indices from python2
+        # # assert len(data) == sum([len(fold_indices) for fold_indices in all_fold_indices])
+
+        # log_scaffold_stats(data, all_fold_indices, logger=logger)
+
+        # folds = [[data[i] for i in fold_indices] for fold_indices in all_fold_indices]
+
+        # test = folds[test_fold_index]
+        # if val_fold_index is not None:
+            # val = folds[val_fold_index]
+
+        # train_val = []
+        # for i in range(len(folds)):
+            # if i != test_fold_index and (val_fold_index is None or i != val_fold_index):
+                # train_val.extend(folds[i])
+
+        # if val_fold_index is not None:
+            # train = train_val
+        # else:
+            # random.seed(seed)
+            # random.shuffle(train_val)
+            # train_size = int(sizes[0] * len(train_val))
+            # train = train_val[:train_size]
+            # val = train_val[train_size:]
+
+            # train, val = _assure_val_split(train, val, train_size, seed)
+
+        # return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
 
     elif split_type == 'random':
         data.shuffle(seed=seed)
@@ -302,7 +285,7 @@ def split_data(data: MolPairDataset,
 
         train, val = _assure_val_split(train, val, train_size, seed)
 
-        return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
+        return StratMolPairDataset(train, args.sample_ratio), MolPairDataset(val), MolPairDataset(test)
 
     else:
         raise ValueError(f'split_type "{split_type}" not supported.')

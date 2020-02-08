@@ -1,6 +1,7 @@
 from argparse import Namespace
 import random
 from typing import Callable, List, Tuple, Union
+from collections import defaultdict
 
 import numpy as np
 from torch.utils.data.dataset import Dataset
@@ -285,3 +286,180 @@ class MolPairDataset(Dataset):
         :return: A MoleculeDatapoint if an int is provided or a list of MoleculeDatapoints if a slice is provided.
         """
         return self.data[item]
+
+
+class StratMolPairDataset(Dataset):
+    """A MolPairDataset contains a list of molecule pairs and their associated features, context, and targets."""
+
+    def __init__(self, data: List[MolPairDatapoint], sampling_ratio: int):
+        """
+        Initializes a MolPairDataset, which contains a list of MolPairDatapoints (i.e. a list of molecules).
+
+        :param data: A list of MolPairDatapoints.
+        """
+        self.neg_data = [defaultdict(list),defaultdict(list)]
+        for neg_pair in filter(lambda x: x.targets[0] == 0, data):
+            self.neg_data[0][neg_pair.drug_smiles].append(neg_pair)
+            self.neg_data[1][neg_pair.cmpd_smiles].append(neg_pair)
+
+        self.pos_data = []
+        for pos_pair in filter(lambda x: x.targets[0] == 1, data):
+            assert len(self.neg_data[0][pos_pair.drug_smiles]) > 0
+            assert len(self.neg_data[1][pos_pair.cmpd_smiles]) > 0
+            self.pos_data.extend( [(pos_pair, 0), (pos_pair, 1)] )
+
+        self.ratio = sampling_ratio
+        self.args = self.pos_data[0][0].args if len(self.pos_data) > 0 else None
+        self.drug_scaler, self.cmpd_scaler = None, None
+
+    def getMolPairDataset(self) -> MolPairDataset:
+        ret = []
+        for key in self.neg_data[0]:
+            ret.extend(list(self.neg_data[0][key]))
+        ret.extend([x[0] for x in self.pos_data])
+        return MolPairDataset(ret)
+
+    def smiles(self) -> List[Tuple[str, str]]:
+        """
+        Returns the smiles strings associated with the molecules.
+
+        :return: A list of smiles strings.
+        """
+        raise NotImplementedError
+        return [(d.drug_smiles, d.cmpd_smiles) for d in self.pos_data]
+
+    def mols(self) -> List[Chem.Mol]:
+        """
+        Returns the RDKit molecules associated with the molecules.
+
+        :return: A list of tuple of RDKit Mols.
+        """
+        raise NotImplementedError
+        return [(d.drug_mol, d.cmpd_mol) for d in self.pos_data]
+
+    def features(self) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Returns the features associated with each molecule (if they exist).
+
+        :return: A list of 1D numpy arrays containing the features for each molecule or None if there are no features.
+        """
+        raise NotImplementedError
+        if len(self.pos_data) == 0:
+            return None
+        # if self.data[0].drug_feats is None and self.data[0].cmpd_feats is None)
+        # TODO fix
+
+        return [(d.drug_feats, d.cmpd_feats) for d in self.pos_data]
+
+    def targets(self) -> List[List[float]]:
+        """
+        Returns the targets associated with each molecule.
+
+        :return: A list of lists of floats containing the targets.
+        """
+        raise NotImplementedError
+
+    def num_tasks(self) -> int:
+        """
+        Returns the number of prediction tasks.
+
+        :return: The number of tasks.
+        """
+        return self.pos_data[0][0].num_tasks() if len(self.pos_data) > 0 else None
+
+    def features_size(self) -> int:
+        """
+        Returns the size of the features array associated with each molecule.
+
+        :return: The size of the features.
+        """
+        if len(self.pos_data) == 0:
+            return None
+        if self.pos_data[0].drug_feats is None and self.pos_data[0].cmpd_feats is None:
+            return None
+
+        drug_dim, cmpd_dim = 0, 0
+        if self.pos_data[0][0].drug_feats is not None:
+            drug_dim = len(self.pos_data[0][0].drug_feats)
+        if self.pos_data[0][0].cmpd_feats is not None:
+            cmpd_dim = len(self.pos_data[0][0].cmpd_feats)
+        return drug_dim + cmpd_dim
+
+    def shuffle(self, seed: int = None):
+        """
+        Shuffles the dataset.
+
+        :param seed: Optional random seed.
+        """
+        if seed is not None:
+            random.seed(seed)
+        random.shuffle(self.pos_data)
+        for key in self.neg_data[0]:
+            random.shuffle(self.neg_data[0][key])
+        for key in self.neg_data[1]:
+            random.shuffle(self.neg_data[1][key])
+
+    def normalize_features(self, drug_scaler: StandardScaler = None, cmpd_scaler: StandardScaler = None, replace_nan_token: int = 0) -> StandardScaler:
+        """
+        Normalizes the features of the dataset using a StandardScaler (subtract mean, divide by standard deviation).
+
+        If a scaler is provided, uses that scaler to perform the normalization. Otherwise fits a scaler to the
+        features in the dataset and then performs the normalization.
+
+        :param scaler: A fitted StandardScaler. Used if provided. Otherwise a StandardScaler is fit on
+        this dataset and is then used.
+        :param replace_nan_token: What to replace nans with.
+        :return: A fitted StandardScaler. If a scaler is provided, this is the same scaler. Otherwise, this is
+        a scaler fit on this dataset.
+        """
+        if len(self.pos_data) == 0:
+            return (None, None)
+
+        if self.pos_data[0][0].drug_feats is not None:
+            if drug_scaler is not None:
+                self.drug_scaler = drug_scaler
+            elif self.drug_scaler is None:
+                drug_feats = np.vstack([d.drug_feats for d in self.data])
+                self.drug_scaler = StandardScaler(replace_nan_token=replace_nan_token)
+                self.drug_scaler.fit(drug_feats)
+
+            for d in self.data:
+                d.set_features(self.drug_scaler.transform(d.drug_feats.reshape(1, -1))[0])
+
+        if self.pos_data[0][0].cmpd_feats is not None:
+            if cmpd_scaler is not None:
+                self.cmpd_scaler = cmpd_scaler
+            elif self.cmpd_scaler is None:
+                cmpd_feats = np.vstack([d.cmpd_feats for d in self.data])
+                self.cmpd_scaler = StandardScaler(replace_nan_token=replace_nan_token)
+                self.cmpd_scaler.fit(cmpd_feats)
+
+            for d in self.data:
+                d.set_features(self.cmpd_scaler.transform(d.cmpd_feats.reshape(1, -1))[0])
+
+        return (self.drug_scaler, self.cmpd_scaler)
+
+    def __len__(self) -> int:
+        """
+        Returns the length of the dataset (i.e. the number of molecules).
+
+        :return: The length of the dataset.
+        """
+        return len(self.pos_data)
+
+    def __getitem__(self, item) -> Union[MolPairDatapoint, List[MolPairDatapoint]]:
+        """
+        Gets one or more MoleculeDatapoints via an index or slice.
+
+        :param item: An index (int) or a slice object.
+        :return: A MoleculeDatapoint if an int is provided or a list of MoleculeDatapoints if a slice is provided.
+        """
+        retBatch, retLens = [], []
+        for pos_pair, ind in self.pos_data[item]:
+            retBatch.append(pos_pair)
+            query = pos_pair.cmpd_smiles if ind else pos_pair.drug_smiles
+
+            neg_samples = self.neg_data[ind][query][:self.ratio]
+            retBatch.extend(neg_samples)
+            retLens.append(1+len(neg_samples))
+        return retBatch, retLens

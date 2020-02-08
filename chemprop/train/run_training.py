@@ -235,8 +235,9 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         )
         if args.save_preds:
             val_preds = predict(model=model, data=val_data, batch_size=args.batch_size, scaler=scaler)
-            train_preds = predict(model=model, data=train_data, batch_size=args.batch_size, scaler=scaler)
-            save_predictions(save_dir, train_data, val_data, test_data, train_preds, val_preds, test_preds)
+            train_dataPred = train_data.getMolPairDataset()
+            train_preds = predict(model=model, data=train_dataPred, batch_size=args.batch_size, scaler=scaler)
+            save_predictions(save_dir, train_dataPred, val_data, test_data, train_preds, val_preds, test_preds)
 
         test_scores = evaluate_predictions(
             preds=test_preds,
