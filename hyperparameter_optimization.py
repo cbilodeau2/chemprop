@@ -20,10 +20,10 @@ from chemprop.utils import create_logger, makedirs
 SPACE = {
     'hidden_size': hp.loguniform('hidden_size', low=2, high=7),
     'depth': hp.quniform('depth', low=2, high=6, q=1),
-    'neg_weight': hp.quniform('neg_weight', low=0.1, high=1, q=0.1),
+    'sample_ratio': hp.quniform('neg_weight', low=9, high=249, q=5),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
 }
-INT_KEYS = ['depth', 'hidden_size']
+INT_KEYS = ['depth', 'hidden_size', 'sample_ratio']
 
 
 def grid_search(args: Namespace):

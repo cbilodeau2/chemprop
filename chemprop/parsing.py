@@ -188,7 +188,7 @@ def add_train_args(parser: ArgumentParser):
                         help='Number of layers in FFN after MPN encoding')
     parser.add_argument('--atom_messages', action='store_true', default=False,
                         help='Use messages on atoms instead of messages on bonds')
-    parser.add_argument('--sample_ratio', type=int, default=11,
+    parser.add_argument('--sample_ratio', type=int, default=10,
                         help='Number of neg samples used in softmax')
 
     # Experiment
