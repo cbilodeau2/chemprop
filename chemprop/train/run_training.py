@@ -80,6 +80,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                 return [float('nan')]
 
     if args.save_smiles_splits:
+        raise NotImplementedError("Incomplete train, val writing")
         with open(args.data_path, 'r') as f:
             reader = csv.reader(f)
             header = next(reader)
@@ -195,9 +196,10 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             )
             if isinstance(scheduler, ExponentialLR):
                 scheduler.step()
-            val_scores = evaluate(
+            val_scores, val_loss = evaluate(
                 model=model,
                 data=val_data,
+                loss_func=loss_func,
                 num_tasks=args.num_tasks,
                 metric_func=metric_func,
                 batch_size=args.batch_size,
@@ -206,10 +208,13 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                 logger=logger
             )
 
-            # Average validation score
+            # Average validation score (over diff tasks)
             avg_val_score = np.nanmean(val_scores)
             debug(f'Validation {args.metric} = {avg_val_score:.6f}')
             writer.add_scalar(f'validation_{args.metric}', avg_val_score, n_iter)
+
+            debug(f'Validation loss = {val_loss:.6f}')
+            writer.add_scalar(f'validation_loss', val_loss, n_iter)
 
             if args.show_individual_scores:
                 # Individual validation scores
@@ -234,10 +239,10 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             scaler=scaler
         )
         if args.save_preds:
-            val_preds = predict(model=model, data=val_data, batch_size=args.batch_size, scaler=scaler)
-            train_dataPred = train_data.getMolPairDataset()
+            train_dataPred, val_dataPred  = train_data.getMolPairDataset(), val_data.getMolPairDataset()
+            val_preds = predict(model=model, data=val_dataPred, batch_size=args.batch_size, scaler=scaler)
             train_preds = predict(model=model, data=train_dataPred, batch_size=args.batch_size, scaler=scaler)
-            save_predictions(save_dir, train_dataPred, val_data, test_data, train_preds, val_preds, test_preds)
+            save_predictions(save_dir, train_dataPred, val_dataPred, test_data, train_preds, val_preds, test_preds)
 
         test_scores = evaluate_predictions(
             preds=test_preds,

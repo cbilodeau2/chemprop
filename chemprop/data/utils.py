@@ -285,7 +285,9 @@ def split_data(data: MolPairDataset,
 
         train, val = _assure_val_split(train, val, train_size, seed)
 
-        return StratMolPairDataset(train, args.sample_ratio), MolPairDataset(val), MolPairDataset(test)
+        train = StratMolPairDataset(train, args.sample_ratio)
+        val = StratMolPairDataset(val, args.sample_ratio)
+        return train, val, MolPairDataset(test)
 
     else:
         raise ValueError(f'split_type "{split_type}" not supported.')

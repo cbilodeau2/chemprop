@@ -49,7 +49,7 @@ def train(model: nn.Module,
     iter_size = args.batch_size
 
     for i in trange(0, len(data), iter_size):
-        mol_batch, lengths = data[i:i + args.batch_size]
+        mol_batch, lengths = data[i:i + iter_size]
         mol_batch = MolPairDataset(mol_batch)
 
         batch = mol_batch.smiles()
@@ -58,13 +58,13 @@ def train(model: nn.Module,
         model.zero_grad()
         preds = model(batch, lengths)
 
-        targets = torch.zeros(preds.shape, dtype=torch.long)
+        ind_select = torch.zeros(preds.shape, dtype=torch.long)
         if next(model.parameters()).is_cuda:
-            targets = targets.cuda()
+            ind_select = ind_select.cuda()
 
         # Output only the positive ones
-        loss = loss_func(preds.unsqueeze(-1), targets)
-        loss = loss.sum() / iter_size
+        loss = loss_func(preds.unsqueeze(-1), ind_select)
+        loss = loss.sum() / len(lengths)
 
         loss_sum += loss.item()
         iter_count += len(mol_batch)

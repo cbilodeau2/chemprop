@@ -4,8 +4,46 @@ from typing import Callable, List
 import torch.nn as nn
 
 from .predict import predict
-from chemprop.data import MolPairDataset, StandardScaler
+from chemprop.data import StratMolPairDataset, MolPairDataset, StandardScaler
 
+
+def val_loss(model: nn.Module,
+             data: Union[StratMolPairDataset, List[StratMolPairDataset]],
+             loss_func: Callable,
+             batch_size: int) -> int:
+    """
+    Gets validation loss for an epoch.
+
+    :param model: Model.
+    :param data: A MolPairDataset (or a list of MolPairDatasets if using moe).
+    :param loss_func: Loss function.
+    :param batch_size: Batch size.
+    :return: loss on validation set.
+    """
+    model.train()
+    data.shuffle()
+    loss_sum, num_pos = 0, 0
+
+    for i in trange(0, len(data), batch_size):
+        mol_batch, lengths = data[i:i + batch_size]
+        num_pos += len(lengths)
+        mol_batch = MolPairDataset(mol_batch)
+
+        batch = mol_batch.smiles()
+
+        # Run model
+        model.zero_grad()
+        with torch.no_grad():
+            preds = model(batch, lengths)
+            ind_select = torch.zeros(preds.shape, dtype=torch.long)
+            if next(model.parameters()).is_cuda:
+                ind_select = ind_select.cuda()
+
+            # Output only the positive ones
+            loss = loss_func(preds.unsqueeze(-1), ind_select).sum()
+            loss_sum += loss.item()
+
+    return loss_sum/num_pos
 
 def evaluate_predictions(preds: List[List[float]],
                          targets: List[List[float]],
@@ -68,7 +106,8 @@ def evaluate_predictions(preds: List[List[float]],
 
 
 def evaluate(model: nn.Module,
-             data: MolPairDataset,
+             data: StratMolPairDataset,
+             loss_func: Callable,
              num_tasks: int,
              metric_func: Callable,
              batch_size: int,
@@ -80,6 +119,7 @@ def evaluate(model: nn.Module,
 
     :param model: A model.
     :param data: A MolPairDataset.
+    :param loss_func: Loss function.
     :param num_tasks: Number of tasks.
     :param metric_func: Metric function which takes in a list of targets and a list of predictions.
     :param batch_size: Batch size.
@@ -88,6 +128,9 @@ def evaluate(model: nn.Module,
     :param logger: Logger.
     :return: A list with the score for each task based on `metric_func`.
     """
+    loss = val_loss(model, data, loss_func, batch_size)
+
+    data = data.getMolPairDataset()
     preds = predict(
         model=model,
         data=data,
@@ -106,4 +149,4 @@ def evaluate(model: nn.Module,
         logger=logger
     )
 
-    return results
+    return results, loss
