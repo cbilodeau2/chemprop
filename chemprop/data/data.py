@@ -304,9 +304,10 @@ class StratMolPairDataset(Dataset):
 
         self.pos_data = []
         for pos_pair in filter(lambda x: x.targets[0] == 1, data):
-            assert len(self.neg_data[0][pos_pair.drug_smiles]) > 0
-            assert len(self.neg_data[1][pos_pair.cmpd_smiles]) > 0
-            self.pos_data.extend( [(pos_pair, 0), (pos_pair, 1)] )
+            if len(self.neg_data[1][pos_pair.cmpd_smiles]) > 0:
+                self.pos_data.append( (pos_pair, 1) )
+            if len(self.neg_data[0][pos_pair.drug_smiles]) > 0:
+                self.pos_data.append( (pos_pair, 0) )
 
         self.ratio = sampling_ratio
         self.args = self.pos_data[0][0].args if len(self.pos_data) > 0 else None

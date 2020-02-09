@@ -1,6 +1,7 @@
 import logging
-from typing import Callable, List
+from typing import Callable, List, Union
 
+import torch
 import torch.nn as nn
 
 from .predict import predict
@@ -24,7 +25,7 @@ def val_loss(model: nn.Module,
     data.shuffle()
     loss_sum, num_pos = 0, 0
 
-    for i in trange(0, len(data), batch_size):
+    for i in range(0, len(data), batch_size):
         mol_batch, lengths = data[i:i + batch_size]
         num_pos += len(lengths)
         mol_batch = MolPairDataset(mol_batch)
