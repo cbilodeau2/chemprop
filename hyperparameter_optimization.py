@@ -5,6 +5,7 @@ from copy import deepcopy
 import json
 from typing import Dict, Union
 import os
+import time
 
 from hyperopt import fmin, hp, tpe
 import numpy as np
@@ -98,12 +99,15 @@ if __name__ == '__main__':
     add_train_args(parser)
     parser.add_argument('--num_iters', type=int, default=20,
                         help='Number of hyperparameter choices to try')
-    parser.add_argument('--config_save_path', type=str,
-                        help='Path to .json file where best hyperparameter settings will be written')
-    parser.add_argument('--log_dir', type=str,
-                        help='(Optional) Path to a directory where all results of the hyperparameter optimization will be written')
+
     args = parser.parse_args()
     modify_train_args(args)
     assert args.config_save_path  # check if supplied
 
+    args.config_save_path = os.path.join(args.save_dir, 'hyper.json')
+    args.log_dir = args.save_dir
+    assert args.config_save_path  # check if supplied
+
+    start = time.time()
     grid_search(args)
+    print('Execution time:', (time.time()-start)/3600, 'hrs')

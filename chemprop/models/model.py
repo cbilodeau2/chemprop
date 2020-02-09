@@ -33,12 +33,17 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
+<<<<<<< HEAD
         # ITERATION 1
         # self.encoder1 = MPN(args)
         # self.encoder2 = MPN(args)
 
         # ITERATION 2
         self.encoder = DualMPN(args)
+=======
+        self.drug_encoder = MPN(args) if not args.cmpd_only else None
+        self.cmpd_encoder = MPN(args) if not args.drug_only else None
+>>>>>>> a446211f22722520d50790218adccc8658398ac2
 
     def create_ffn(self, args: Namespace):
         """
@@ -47,6 +52,8 @@ class MoleculeModel(nn.Module):
         :param args: Arguments.
         """
         self.multiclass = args.dataset_type == 'multiclass'
+        self.ops = args.ops
+
         if self.multiclass:
             self.num_classes = args.multiclass_num_classes
         if args.features_only:
@@ -55,6 +62,9 @@ class MoleculeModel(nn.Module):
             first_linear_dim = args.hidden_size*2
             if args.use_input_features:
                 first_linear_dim += args.features_dim
+
+        if args.drug_only or args.cmpd_only or self.ops != 'concat':
+            first_linear_dim = int(first_linear_dim/2)
 
         dropout = nn.Dropout(args.dropout)
         activation = get_activation_function(args.activation)
@@ -95,14 +105,25 @@ class MoleculeModel(nn.Module):
         smiles, feats = input
         drug_smiles, drug_feats = [x[0] for x in smiles], [x[0] for x in feats]
         cmpd_smiles, cmpd_feats = [x[1] for x in smiles], [x[1] for x in feats]
-
-        # learnedRep1 = self.encoder1(mol_smiles, mol_feats)
-        # learnedRep2 = self.encoder2(struct_smiles, struct_feats)
-        # newInput = torch.cat([learnedRep1, learnedRep2], dim=1)
-
         drug_rep, cmpd_rep = self.encoder(drug_smiles, cmpd_smiles, drug_feats, cmpd_feats)
-        # print('FINAL OUTPUT SHAPE', mol_rep.shape, struct_rep.shape)
-        newInput = torch.cat([drug_rep, cmpd_rep], dim=1)
+
+        newInput = []
+        if self.drug_encoder:
+            newInput.append(drug_rep)
+        if self.cmpd_encoder:
+            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+            newInput.append(cmpd_rep)
+
+        if len(newInput) > 1:
+            if self.ops == 'plus':
+                newInput = newInput[0] + newInput[1]
+            elif self.ops == 'minus':
+                newInput = newInput[0] - newInput[1]
+            else:
+                newInput = torch.cat(newInput, dim=1)
+        else:
+            newInput = newInput[0]
+
         output = self.ffn(newInput)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss

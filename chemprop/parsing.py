@@ -46,6 +46,9 @@ def add_predict_args(parser: ArgumentParser):
     parser.add_argument('--config_path', type=str,
                         help='Path to a .json file containing arguments. Any arguments present in the config'
                              'file will override arguments specified via the command line or by the defaults.')
+    parser.add_argument('--ops', type=str, default='concat',
+                        choices=['plus', 'minus', 'concat'],
+                        help='Operation for embeddings')
 
 
 def add_train_args(parser: ArgumentParser):
@@ -77,6 +80,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Directory where model checkpoints will be saved')
     parser.add_argument('--save_smiles_splits', action='store_true', default=False,
                         help='Save smiles for each train/val/test splits for prediction convenience later')
+    parser.add_argument('--save_preds', action='store_true', default=False,
+                        help='Save predictions for best model')
     parser.add_argument('--checkpoint_dir', type=str, default=None,
                         help='Directory from which to load model checkpoints'
                              '(walks directory and ensembles all models that are found)')
@@ -188,6 +193,16 @@ def add_train_args(parser: ArgumentParser):
                         help='Uses only learned rep for drug structure')
     parser.add_argument('--cmpd_only', action='store_true', default=False,
                         help='Uses only learned rep for cmpd structure')
+    # Experiment
+    parser.add_argument('--scale_lr', action='store_true', default=False,
+                        help='Scale LR based on batch size')
+    parser.add_argument('--drug_only', action='store_true', default=False,
+                        help='Masks learned rep of cmpd structure')
+    parser.add_argument('--cmpd_only', action='store_true', default=False,
+                        help='Masks learned rep of drug structure')
+    parser.add_argument('--ops', type=str, default='concat',
+                        choices=['plus', 'minus', 'concat'],
+                        help='Operation for embeddings')
 
 
 def update_checkpoint_args(args: Namespace):
@@ -232,6 +247,7 @@ def modify_predict_args(args: Namespace):
             for key, value in config.items():
                 setattr(args, key, value)
 
+    assert not args.use_compound_names  # not supported
     assert args.test_path
     assert args.preds_path
     assert args.checkpoint_dir is not None or args.checkpoint_path is not None or args.checkpoint_paths is not None
@@ -271,8 +287,13 @@ def modify_train_args(args: Namespace):
         if args.save_dir.upper() == 'AUTO':
             args.save_dir = os.path.dirname(args.config_path)
 
+    assert not args.use_compound_names  # not supported
     assert args.data_path is not None
     assert args.dataset_type is not None
+    assert not (args.drug_only and args.cmpd_only)
+
+    if args.drug_only or args.cmpd_only:
+        assert args.ops == 'concat'
 
     if args.save_dir is not None:
         makedirs(args.save_dir)
@@ -302,7 +323,7 @@ def modify_train_args(args: Namespace):
     args.minimize_score = args.metric in ['rmse', 'mae', 'mse', 'cross_entropy']
 
     update_checkpoint_args(args)
-    
+
     if args.features_only:
         assert args.features_generator or args.features_path
 
@@ -312,6 +333,11 @@ def modify_train_args(args: Namespace):
         assert not args.features_scaling
 
     args.num_lrs = 1
+    if args.scale_lr:
+        scale = args.batch_size/50  # default batch size
+        args.init_lr *= scale
+        args.max_lr *= scale
+        args.final_lr *= scale
 
     if args.ffn_hidden_size is None:
         args.ffn_hidden_size = args.hidden_size
