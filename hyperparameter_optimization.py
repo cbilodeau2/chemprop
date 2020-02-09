@@ -110,6 +110,8 @@ if __name__ == '__main__':
     if args.fix_dim:
         del SPACE['hidden_size']
         del INT_KEYS[INT_KEYS.index('hidden_size')]
+    if args.loss_func == 'mse':
+        del SPACE['neg_weight']
 
     start = time.time()
     grid_search(args)
