@@ -33,17 +33,9 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-<<<<<<< HEAD
-        # ITERATION 1
-        # self.encoder1 = MPN(args)
-        # self.encoder2 = MPN(args)
-
-        # ITERATION 2
         self.encoder = DualMPN(args)
-=======
-        self.drug_encoder = MPN(args) if not args.cmpd_only else None
-        self.cmpd_encoder = MPN(args) if not args.drug_only else None
->>>>>>> a446211f22722520d50790218adccc8658398ac2
+        self.drug_only = args.drug_only
+        self.cmpd_only = args.cmpd_only
 
     def create_ffn(self, args: Namespace):
         """
@@ -108,10 +100,9 @@ class MoleculeModel(nn.Module):
         drug_rep, cmpd_rep = self.encoder(drug_smiles, cmpd_smiles, drug_feats, cmpd_feats)
 
         newInput = []
-        if self.drug_encoder:
+        if not self.cmpd_only:
             newInput.append(drug_rep)
-        if self.cmpd_encoder:
-            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+        if not self.drug_only:
             newInput.append(cmpd_rep)
 
         if len(newInput) > 1:
