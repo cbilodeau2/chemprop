@@ -130,8 +130,8 @@ def evaluate(model: nn.Module,
     :return: A list with the score for each task based on `metric_func`.
     """
     loss = val_loss(model, data, loss_func, batch_size)
-
     data = data.getMolPairDataset()
+
     preds = predict(
         model=model,
         data=data,

@@ -190,6 +190,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Use messages on atoms instead of messages on bonds')
     parser.add_argument('--sample_ratio', type=int, default=10,
                         help='Number of neg samples used in softmax')
+    parser.add_argument('--embedding', action='store_true', default=False,
+                        help='If true, uses independent embedding layer instead of MPN.')
 
     # Experiment
     parser.add_argument('--scale_lr', action='store_true', default=False,
