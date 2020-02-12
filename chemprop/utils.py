@@ -100,6 +100,8 @@ def load_checkpoint(path: str,
     args.cuda = cuda if cuda is not None else args.cuda
     if hasattr(args, 'ops') is False:  # if doesn't exist, then old model version with concat only
         args.ops = 'concat'
+    if hasattr(args, 'shared') is False:
+        args.shared = current_args.shared
 
     # Build model
     model = build_model(args, drug_map, cmpd_map) if args.embedding else build_model(args)
@@ -178,10 +180,10 @@ def get_loss_func(args: Namespace) -> nn.Module:
     :param args: Namespace containing the dataset type ("classification" or "regression").
     :return: A PyTorch loss function.
     """
-    if args.dataset_type == 'classification':
+    if args.dataset_type == 'classification' and args.loss_func != 'mse':
         return nn.BCEWithLogitsLoss(reduction='none')
 
-    if args.dataset_type == 'regression':
+    if args.dataset_type == 'regression' or args.loss_func == 'mse':
         return nn.MSELoss(reduction='none')
     
     if args.dataset_type == 'multiclass':

@@ -18,12 +18,12 @@ from chemprop.utils import create_logger, makedirs
 
 
 SPACE = {
-    'hidden_size': hp.quniform('hidden_size', low=300, high=2400, q=100),
+    'hidden_size': hp.loguniform('hidden_size', low=2, high=7),
     'depth': hp.quniform('depth', low=2, high=6, q=1),
+    'neg_weight': hp.quniform('neg_weight', low=0.1, high=1, q=0.1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
-    'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1)
 }
-INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers']
+INT_KEYS = ['depth', 'hidden_size']
 
 
 def grid_search(args: Namespace):
@@ -101,12 +101,19 @@ if __name__ == '__main__':
     add_train_args(parser)
     parser.add_argument('--num_iters', type=int, default=20,
                         help='Number of hyperparameter choices to try')
+    parser.add_argument('--fix_dim', action='store_true', default=False,
+                        help='If set, does not optimize hidden size')
+
     args = parser.parse_args()
     modify_train_args(args)
 
     args.config_save_path = os.path.join(args.save_dir, 'hyper.json')
     args.log_dir = args.save_dir
     assert args.config_save_path  # check if supplied
+
+    if args.fix_dim:
+        del SPACE['hidden_size']
+        del INT_KEYS[INT_KEYS.index('hidden_size')]
 
     start = time.time()
     grid_search(args)

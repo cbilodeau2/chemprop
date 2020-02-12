@@ -61,7 +61,10 @@ def train(model: nn.Module,
         if next(model.parameters()).is_cuda:
             mask, targets = mask.cuda(), targets.cuda()
 
-        class_weights = torch.ones(targets.shape)
+        if args.neg_weight != 1:  # not implemented for multiclass
+            class_weights = torch.Tensor([[args.neg_weight if x==0 else 1 for x in tb] for tb in targets])
+        else:
+            class_weights = torch.ones(targets.shape)
 
         if args.cuda:
             class_weights = class_weights.cuda()

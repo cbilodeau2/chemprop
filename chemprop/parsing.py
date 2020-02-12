@@ -123,6 +123,8 @@ def add_train_args(parser: ArgumentParser):
                         help='Random seed to use when splitting data into train/val/test sets.'
                              'When `num_folds` > 1, the first fold uses this seed and all'
                              'subsequent folds add 1 to the seed.')
+    parser.add_argument('--loss_func', type=str, default=None, choices=['mse'],
+                        help='Determined by dataset_type if not set')
     parser.add_argument('--metric', type=str, default=None,
                         choices=['auc', 'prc-auc', 'rmse', 'mae', 'mse', 'r2', 'accuracy', 'cross_entropy'],
                         help='Metric to use during evaluation.'
@@ -162,6 +164,7 @@ def add_train_args(parser: ArgumentParser):
                         help='Turn off scaling of features')
     parser.add_argument('--train_all', action='store_true', default=False,
                         help='Train model for all folds, even if test fold cannot be evaluated.')
+    parser.add_argument('--neg_weight', type=float, default=1.0, help='Weighting for negative points')
 
     # Model arguments
     parser.add_argument('--ensemble_size', type=int, default=1,
@@ -198,6 +201,8 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--ops', type=str, default='concat',
                         choices=['plus', 'minus', 'concat'],
                         help='Operation for embeddings')
+    parser.add_argument('--shared', action='store_true', default=False,
+                        help='Use same GCNs for both drug and cmpd')
 
 
 def update_checkpoint_args(args: Namespace):
@@ -310,10 +315,10 @@ def modify_train_args(args: Namespace):
         else:
             args.metric = 'rmse'
 
-    if not ((args.dataset_type == 'classification' and args.metric in ['auc', 'prc-auc', 'accuracy']) or
-            (args.dataset_type == 'regression' and args.metric in ['rmse', 'mae', 'mse', 'r2']) or
-            (args.dataset_type == 'multiclass' and args.metric in ['cross_entropy', 'accuracy'])):
-        raise ValueError(f'Metric "{args.metric}" invalid for dataset type "{args.dataset_type}".')
+    # if not ((args.dataset_type == 'classification' and args.metric in ['auc', 'prc-auc', 'accuracy']) or
+            # (args.dataset_type == 'regression' and args.metric in ['rmse', 'mae', 'mse', 'r2']) or
+            # (args.dataset_type == 'multiclass' and args.metric in ['cross_entropy', 'accuracy'])):
+        # raise ValueError(f'Metric "{args.metric}" invalid for dataset type "{args.dataset_type}".')
 
     args.minimize_score = args.metric in ['rmse', 'mae', 'mse', 'cross_entropy']
 
