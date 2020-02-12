@@ -36,6 +36,9 @@ class MoleculeModel(nn.Module):
         if type(drug_set) == list:
             drug_set = {x: i for i, x in enumerate(drug_set)}
             cmpd_set = {x: i for i, x in enumerate(cmpd_set)}
+        assert not args.shared
+        self.shared = False
+
         self.drug_encoder = Embedding(args, drug_set)
         self.cmpd_encoder = Embedding(args, cmpd_set)
 
@@ -96,10 +99,8 @@ def build_model(args: Namespace,
         raise NotImplementedError
 
     model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass', mse=args.loss_func == 'mse')
-    model.create_ffn(args)
 
     if args.embedding:
-        initialize_weights(model)  # initialize xavier for ffn and uniform for embeddings
         model.init_embeddings(args, drug_set, cmpd_set)
     else:
         model.create_encoder(args)
