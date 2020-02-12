@@ -131,15 +131,16 @@ class MPNEncoder(nn.Module):
             if a_size == 0:
                 mol_vecs.append(self.cached_zero_vector)
             else:
-                cur_hiddens = atom_hiddens.narrow(0, a_start, a_size)
-                mol_vec = cur_hiddens  # (num_atoms, hidden_size)
+                # cur_hiddens = 
+                # mol_vec = cur_hiddens  # (num_atoms, hidden_size)
 
-                mol_vec = mol_vec.sum(dim=0) / a_size
-                mol_vecs.append(mol_vec)
+                # mol_vec = mol_vec.sum(dim=0) / a_size
+                mol_vecs.append(atom_hiddens.narrow(0, a_start, a_size))
 
-        mol_vecs = torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
+        # mol_vecs = torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
 
         if self.use_input_features:
+            raise NotImplementedError
             features_batch = features_batch.to(mol_vecs)
             if len(features_batch.shape) == 1:
                 features_batch = features_batch.view([1,features_batch.shape[0]])
