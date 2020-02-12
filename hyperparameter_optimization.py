@@ -19,11 +19,12 @@ from chemprop.utils import create_logger, makedirs
 
 SPACE = {
     'hidden_size': hp.loguniform('hidden_size', low=2, high=7),
-    'depth': hp.quniform('depth', low=2, high=6, q=1),
-    'sample_ratio': hp.quniform('neg_weight', low=9, high=249, q=5),
-    'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
+    # 'depth': hp.quniform('depth', low=2, high=6, q=1),
+    # 'sample_ratio': hp.quniform('neg_weight', low=9, high=249, q=5),
+    # 'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
 }
 INT_KEYS = ['depth', 'hidden_size', 'sample_ratio']
+INT_KEYS = ['hidden_size']
 
 
 def grid_search(args: Namespace):
@@ -55,8 +56,11 @@ def grid_search(args: Namespace):
         mean_score, std_score = cross_validate(hyper_args, train_logger)
 
         # Record results
-        temp_model = build_model(hyper_args)
-        num_params = param_count(temp_model)
+        if not args.embedding:
+            temp_model = build_model(hyper_args)
+            num_params = param_count(temp_model)
+        else:
+            num_params = -1
         logger.info(f'num params: {num_params:,}')
         logger.info(f'{mean_score} +/- {std_score} {hyper_args.metric}')
 
