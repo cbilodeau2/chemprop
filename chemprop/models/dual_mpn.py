@@ -223,11 +223,7 @@ class MPNEncoder(nn.Module):
 
         # Readout
         mol_vecs = self.readout(mol_hiddens, mol_a_scope)
-        if self.args.cmpd_only:  # remove influence from drug <=> mol
-            mol_vecs = F.dropout(mol_vecs, p=1.0, training=True)
         struct_vecs = self.readout(struct_hiddens, struct_a_scope)
-        if self.args.drug_only:  # remove influence from cmpd <=> struct
-            struct_vecs = F.dropout(struct_vecs, p=1.0, training=True)
 
         if self.use_input_features:  # True if features_path or features_generator specified
             mol_features = mol_features.to(mol_vecs)
@@ -238,7 +234,7 @@ class MPNEncoder(nn.Module):
             mol_vecs = torch.cat([mol_vecs, mol_features], dim=1)  # (num_molecules, hidden_size)
             struct_vecs = torch.cat([struct_vecs, struct_features], dim=1)  # (num_molecules, hidden_size)
 
-        return (mol_vecs, struct_vecs)  # num_molecules x hidden
+        return mol_vecs, struct_vecs  # num_molecules x hidden
 
 
 class DualMPN(nn.Module):
