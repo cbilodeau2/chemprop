@@ -175,21 +175,23 @@ class MPNEncoder(nn.Module):
             # Calculate attn scores
             scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))  # dot prod
             scores = scores/np.sqrt(self.attn_size)  # normalize by dim
-            scores = F.softmax(scores.masked_fill(scores == 0, -1e9), dim=1)
+            scores = scores.masked_fill(scores == 0, -1e9)  # to make softmax work with dangling bonds
 
             # Project into value space for attn summing
             mol_val = self.W_v(mol_message)
             struct_val = self.W_v(struct_message)
             mol_val = flat_to_batch(mol_val, mol_b_scope)  # reshape into batches
             struct_val = flat_to_batch(struct_val, struct_b_scope)  # reshape into batches
+            # raise ValueError(struct_val.shape, scores.shape, 'mol', mol_attn.shape, 'struct', struct_attn.shape)
 
             # sum scores * msg of mol
-            mol_add_attn = torch.matmul(scores.unsqueeze(-1), struct_val.unsqueeze(2))
+            struct_scores = F.softmax(scores, dim=1)
+            mol_add_attn = torch.matmul(struct_scores.unsqueeze(-1), struct_val.unsqueeze(2))
             mol_add_attn = mol_add_attn.sum(dim=1)
             mol_add_attn = batch_to_flat(mol_add_attn, mol_b_revscope)
 
-            scores = torch.transpose(scores, dim0=1, dim1=2)
-            struct_add_attn = torch.matmul(scores.unsqueeze(-1), mol_val.unsqueeze(2))
+            mol_scores = F.softmax(torch.transpose(scores, dim0=1, dim1=2), dim=1)
+            struct_add_attn = torch.matmul(mol_scores.unsqueeze(-1), mol_val.unsqueeze(2))
             struct_add_attn = struct_add_attn.sum(dim=1)
             struct_add_attn = batch_to_flat(struct_add_attn, struct_b_revscope)
 
