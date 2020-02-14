@@ -24,7 +24,7 @@ class MPNEncoder(nn.Module):
         self.atom_fdim = atom_fdim
         self.bond_fdim = bond_fdim
         self.hidden_size = args.hidden_size
-        self.attn_size = int(args.hidden_size*args.attn_factor)
+        self.attn_dim = self.atom_fdim + self.hidden_size
         self.bias = args.bias
         self.depth = args.depth
         self.dropout = args.dropout
@@ -67,8 +67,9 @@ class MPNEncoder(nn.Module):
         self.W_o2 = nn.Linear(self.atom_fdim + self.hidden_size, self.hidden_size)
 
         # Attention
-        self.W_q = nn.Linear(w_h_input_size, self.attn_size)
-        self.W_v = nn.Linear(self.hidden_size, self.hidden_size)
+        self.W_q = nn.Linear(self.attn_dim, self.attn_dim, bias=False)
+        self.W_v1 = nn.Linear(self.attn_dim, self.hidden_size, bias=False)
+        self.W_v2 = nn.Linear(self.attn_dim, self.hidden_size, bias=False)
 
     def localMsg(self, message, a2b, b2a, b2revb):
         if self.undirected:
@@ -88,6 +89,11 @@ class MPNEncoder(nn.Module):
             rev_message = message[b2revb]  # num_bonds x hidden
             message = a_message[b2a] - rev_message  # num_bonds x hidden
         return message
+
+    def agg_bonds_to_atoms(self, passed_message, f_atoms, a2x):
+        nei_a_message = index_select_ND(passed_message, a2x)  # num_atoms x max_num_bonds x hidden
+        a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
+        return torch.cat([f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
 
     def readout(self, atom_hiddens, a_scope):
         """
@@ -130,10 +136,10 @@ class MPNEncoder(nn.Module):
                 return (mol_features, struct_features)
 
         zero_vector = torch.zeros(1,self.hidden_size)
-        mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb, mol_a_scope, mol_b_scope = mol_graph.get_components()
-        mol_b_scope, mol_b_revscope = b_scope_tensor(mol_b_scope)
-        struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb, struct_a_scope, struct_b_scope = struct_graph.get_components()
-        struct_b_scope, struct_b_revscope = b_scope_tensor(struct_b_scope)
+        mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb, mol_a_scope, _ = mol_graph.get_components()
+        mol_b_scope, mol_b_revscope = b_scope_tensor(mol_a_scope)
+        struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb, struct_a_scope, _ = struct_graph.get_components()
+        struct_b_scope, struct_b_revscope = b_scope_tensor(struct_a_scope)
 
         if self.atom_messages:
             raise RuntimeError("Not supported yet!")
@@ -163,62 +169,54 @@ class MPNEncoder(nn.Module):
         # Message passing
         for depth in range(self.depth - 1):
             mol_message = self.localMsg(mol_message, mol_a2b, mol_b2a, mol_b2revb)  # num_bonds x hidden
-            struct_message = self.localMsg(struct_message, struct_a2b, struct_b2a, struct_b2revb)  # num_bonds x hidden
-
-            # Project into query space for attn scores
-            mol_attn = self.W_q(mol_message)
-            struct_attn = self.W_q(struct_message)
-            mol_attn = flat_to_batch(mol_attn, mol_b_scope)  # reshape into batches
-            struct_attn = flat_to_batch(struct_attn, struct_b_scope)  # reshape into batches
-            # print('HERE2 mol', mol_attn.shape, 'struct', struct_attn.shape)
-
-            # Calculate attn scores
-            scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))  # dot prod
-            scores = scores/np.sqrt(self.attn_size)  # normalize by dim
-            scores = F.softmax(scores.masked_fill(scores == 0, -1e9), dim=1)
-
-            # Project into value space for attn summing
-            mol_val = self.W_v(mol_message)
-            struct_val = self.W_v(struct_message)
-            mol_val = flat_to_batch(mol_val, mol_b_scope)  # reshape into batches
-            struct_val = flat_to_batch(struct_val, struct_b_scope)  # reshape into batches
-
-            # sum scores * msg of mol
-            mol_add_attn = torch.matmul(scores.unsqueeze(-1), struct_val.unsqueeze(2))
-            mol_add_attn = mol_add_attn.sum(dim=1)
-            mol_add_attn = batch_to_flat(mol_add_attn, mol_b_revscope)
-
-            scores = torch.transpose(scores, dim0=1, dim1=2)
-            struct_add_attn = torch.matmul(scores.unsqueeze(-1), mol_val.unsqueeze(2))
-            struct_add_attn = struct_add_attn.sum(dim=1)
-            struct_add_attn = batch_to_flat(struct_add_attn, struct_b_revscope)
-
-            # Add dummy row
-            mol_val = torch.cat((zero_vector, mol_add_attn), dim=0)
-            struct_val = torch.cat((zero_vector, struct_add_attn), dim=0)
-            # print('attn shape', attn.shape)
-
-            mol_message = self.W_h1(mol_message)
-            struct_message = self.W_h2(struct_message)
-
-            mol_message = self.act_func(mol_input + mol_message + mol_val)  # num_bonds x hidden_size
-            struct_message = self.act_func(struct_input + struct_message + struct_val)  # num_bonds x hidden_size
+            mol_message = self.act_func(mol_input + self.W_h1(mol_message))  # num_bonds x hidden_size
             mol_message = self.dropout_layer(mol_message)  # num_bonds x hidden
+
+            struct_message = self.localMsg(struct_message, struct_a2b, struct_b2a, struct_b2revb)  # num_bonds x hidden
+            struct_message = self.act_func(struct_input + self.W_h2(struct_message))  # num_bonds x hidden_size
             struct_message = self.dropout_layer(struct_message)  # num_bonds x hidden
 
         # Aggregate into hidden state of atoms
         a2x = mol_a2a if self.atom_messages else mol_a2b
-        nei_a_message = index_select_ND(mol_message, a2x)  # num_atoms x max_num_bonds x hidden
-        a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
-        a_input = torch.cat([mol_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
-        mol_hiddens = self.act_func(self.W_o1(a_input))  # num_atoms x hidden
-        mol_hiddens = self.dropout_layer(mol_hiddens)  # num_atoms x hidden
-
+        mol_a_input = self.agg_bonds_to_atoms(mol_message, mol_f_atoms, a2x)
         a2x = struct_a2a if self.atom_messages else struct_a2b
-        nei_a_message = index_select_ND(struct_message, a2x)  # num_atoms x max_num_bonds x hidden
-        a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
-        a_input = torch.cat([struct_f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
-        struct_hiddens = self.act_func(self.W_o2(a_input))  # num_atoms x hidden
+        struct_a_input = self.agg_bonds_to_atoms(struct_message, struct_f_atoms, a2x)
+
+        # Project into query space for attn scores
+        mol_attn = self.W_q(mol_a_input)
+        mol_attn = flat_to_batch(mol_attn, mol_b_scope)  # reshape into batches
+        struct_attn = flat_to_batch(struct_a_input, struct_b_scope)  # reshape into batches
+
+        # Calculate attn scores
+        scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))  # dot prod
+        scores = scores/np.sqrt(self.attn_dim)  # normalize by dim
+        scores = scores.masked_fill(scores == 0, -1e9)
+
+        # Project into value space for attn summing
+        mol_val = self.W_v1(mol_a_input)
+        struct_val = self.W_v2(struct_a_input)
+        mol_val = flat_to_batch(mol_val, mol_b_scope)  # reshape into batches
+        struct_val = flat_to_batch(struct_val, struct_b_scope)  # reshape into batches
+
+        # sum scores * msg of mol
+        struct_scores = F.softmax(scores, dim=1)
+        mol_add_attn = torch.matmul(struct_scores.unsqueeze(-1), struct_val.unsqueeze(2))
+        mol_add_attn = mol_add_attn.sum(dim=1)
+        mol_add_attn = batch_to_flat(mol_add_attn, mol_b_revscope)
+
+        mol_scores = F.softmax(torch.transpose(scores, dim0=1, dim1=2), dim=1)
+        struct_add_attn = torch.matmul(mol_scores.unsqueeze(-1), mol_val.unsqueeze(2))
+        struct_add_attn = struct_add_attn.sum(dim=1)
+        struct_add_attn = batch_to_flat(struct_add_attn, struct_b_revscope)
+
+        # Add dummy row
+        mol_val = torch.cat((zero_vector, mol_add_attn), dim=0)
+        struct_val = torch.cat((zero_vector, struct_add_attn), dim=0)
+
+        # Incorporate attn into atom hidden msgs
+        mol_hiddens = self.act_func(self.W_o1(mol_a_input) + mol_val)  # num_atoms x hidden
+        struct_hiddens = self.act_func(self.W_o2(struct_a_input) + struct_val)  # num_atoms x hidden
+        mol_hiddens = self.dropout_layer(mol_hiddens)  # num_atoms x hidden
         struct_hiddens = self.dropout_layer(struct_hiddens)  # num_atoms x hidden
 
         # Readout
