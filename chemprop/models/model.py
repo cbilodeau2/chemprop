@@ -12,7 +12,7 @@ from chemprop.nn_utils import initialize_weights
 class MoleculeModel(nn.Module):
     """A MoleculeModel is a model which contains a message passing network following by feed-forward layers."""
 
-    def __init__(self, classification: bool, regression: bool, mse: bool, gpu: bool):
+    def __init__(self, dataset_type: str, dist: str, mse_loss: bool, gpu: bool):
         """
         Initializes the MoleculeModel.
 
@@ -21,12 +21,13 @@ class MoleculeModel(nn.Module):
         super(MoleculeModel, self).__init__()
 
         self.gpu = gpu
-        self.classification = classification
-        self.regression = regression
+        self.classification = dataset_type == 'classification'
+        self.regression = dataset_type == 'regression'
         if self.classification:
-            self.activation = nn.Sigmoid() if not mse else nn.Identity()
+            self.activation = nn.Identity() if mse_loss else nn.Sigmoid()
         elif self.regression:
-            self.scale = nn.Linear(1, 1)
+            self.scale = nn.Linear(1, 1, bias=True)
+        self.dist = dist
 
     def create_encoder(self, args: Namespace):
         """
@@ -56,11 +57,13 @@ class MoleculeModel(nn.Module):
         output = []
         for i, drug in enumerate(learned_drugs):
             cmpd = learned_cmpds[i]
-            dist, _ = compute_ot(drug, cmpd, self.gpu, opt_method='wmd', rescale_cost=True)
+            dist, _ = compute_ot(drug, cmpd, self.gpu, opt_method=self.dist)
             output.append(dist)
         output = torch.stack(output, dim=0).unsqueeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
+        if self.classification:
+            output = -output
         if self.classification and not self.training:  # is identity if mse loss
             output = self.activation(output)
         if self.regression:
@@ -81,7 +84,7 @@ def build_model(args: Namespace,
     output_size = args.num_tasks
     args.output_size = output_size
 
-    model = MoleculeModel(classification=args.dataset_type == 'classification', regression=args.dataset_type == 'regression', mse=args.loss_func == 'mse', gpu=args.cuda)
+    model = MoleculeModel(dataset_type=args.dataset_type, dist=args.dist, mse_loss=args.loss_func == 'mse', gpu=args.cuda)
     model.create_encoder(args)
     initialize_weights(model)  # initialize xavier for both
 

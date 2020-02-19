@@ -17,8 +17,8 @@ def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost=True):
         [#nodes_1, #nodes_2] matrix of the l2 distance between point pairs
     '''
     if dist_type == 'l2':
-        n_1, _ = X_1.size()
-        n_2, _ = X_2.size()
+        n_1, _ = X_1.shape
+        n_2, _ = X_2.shape
 
         # Expand dimensions to broadcast in the following step
         X_1 = X_1.view(n_1, 1, -1)
@@ -49,7 +49,7 @@ def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=Fa
         dist_type: 'l2' or 'dot'
         cuda: bool indiciating if gpu should be used
         opt_method: The optimization method {emd, wmd}
-        rescale_cost: Whether to normalize the cost matrix by the max ele
+        rescale_cost: Whether to normalize the cost matrix by the max ele. Get errors if you do this
     '''
     drug_numAtoms, cmpd_numAtoms = X_1.shape[0], X_2.shape[0]
     H_1 = np.ones(drug_numAtoms)/drug_numAtoms
