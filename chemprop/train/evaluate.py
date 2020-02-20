@@ -11,6 +11,7 @@ from chemprop.data import MolPairDataset, StandardScaler
 def val_loss(model: nn.Module,
              data: Union[MolPairDataset, List[MolPairDataset]],
              loss_func: Callable,
+             beta: float,
              batch_size: int,
              dataset_type: str) -> int:
     """
@@ -24,7 +25,7 @@ def val_loss(model: nn.Module,
     """
     model.train()
     data.shuffle()
-    loss_sum, total_num = 0, 0
+    loss_sum, reg_sum, total_num = 0, 0, 0
 
     for i in range(0, len(data), batch_size):
         mol_batch = MolPairDataset(data[i:i + batch_size])
@@ -39,17 +40,18 @@ def val_loss(model: nn.Module,
         # Run model
         model.zero_grad()
         with torch.no_grad():
-            preds = model(batch, features_batch)
+            preds, reg = model(batch, features_batch)
 
             if dataset_type == 'multiclass':
                 targets = targets.long()
                 loss = torch.cat([loss_func(preds[:, target_index, :], targets[:, target_index]).unsqueeze(1) for target_index in range(preds.size(1))], dim=1) * mask
             else:
                 loss = loss_func(preds, targets) * mask
+            reg_sum += reg.sum().item()
             loss_sum += loss.sum().item()
             total_num += mask.sum()
 
-    return loss_sum/total_num
+    return loss_sum/total_num - beta * reg_sum/total_num
 
 
 def evaluate_predictions(preds: List[List[float]],
@@ -115,6 +117,7 @@ def evaluate_predictions(preds: List[List[float]],
 def evaluate(model: nn.Module,
              data: MolPairDataset,
              loss_func: Callable,
+             beta: float,
              num_tasks: int,
              metric_func: Callable,
              batch_size: int,
@@ -135,7 +138,7 @@ def evaluate(model: nn.Module,
     :param logger: Logger.
     :return: A list with the score for each task based on `metric_func`.
     """
-    loss = val_loss(model, data, loss_func, batch_size, dataset_type)
+    loss = val_loss(model, data, loss_func, beta, batch_size, dataset_type)
 
     preds = predict(
         model=model,

@@ -55,11 +55,14 @@ class MoleculeModel(nn.Module):
         assert len(learned_drugs) == len(learned_cmpds)
 
         output = []
+        nce_regs = []
         for i, drug in enumerate(learned_drugs):
             cmpd = learned_cmpds[i]
-            dist, _ = compute_ot(drug, cmpd, self.gpu, opt_method=self.dist)
+            dist, _, nce_reg = compute_ot(drug, cmpd, self.gpu, opt_method=self.dist) #, dist_type='dot', rescale_cost=True)
             output.append(dist)
+            nce_regs.append(nce_reg)
         output = torch.stack(output, dim=0).unsqueeze(-1)
+        nce_regs = torch.stack(nce_regs, dim=0).unsqueeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if self.classification:
@@ -69,7 +72,7 @@ class MoleculeModel(nn.Module):
         if self.regression:
             output = self.scale(output)
 
-        return output
+        return output, nce_regs
 
 
 def build_model(args: Namespace,

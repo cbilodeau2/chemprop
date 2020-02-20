@@ -25,15 +25,16 @@ def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost=True):
         X_2 = X_2.view(1, n_2, -1)
         squared_dist = (X_1 - X_2) ** 2
         cost_mat = torch.sum(squared_dist, dim=2)
+        if rescale_cost:
+            cost_mat = cost_mat / cost_mat.max()
 
     elif dist_type == 'dot':
         cost_mat = - X_1.matmul(X_2.transpose(0,1))
+        if rescale_cost:
+            cost_mat = cost_mat / abs(cost_mat.max())
 
     else:
         raise NotImplementedError('Unsupported dist type')
-
-    if rescale_cost:
-        cost_mat = cost_mat / cost_mat.max()
 
     return cost_mat
 
@@ -54,7 +55,6 @@ def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=Fa
     drug_numAtoms, cmpd_numAtoms = X_1.shape[0], X_2.shape[0]
     H_1 = np.ones(drug_numAtoms)/drug_numAtoms
     H_2 = np.ones(cmpd_numAtoms)/cmpd_numAtoms
-    # raise ValueError(X_1.shape, X_2.shape, H_1.shape, H_2.shape)
 
     cost_mat = compute_cost_mat(X_1, X_2, dist_type, rescale_cost=rescale_cost)
     # Convert cost matrix to numpy array to feed into sinkhorn algorithm
@@ -65,7 +65,7 @@ def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=Fa
 
     elif opt_method == 'wmd':
         ot_dist = torch.max(torch.mean(torch.min(cost_mat, dim=0)[0]), torch.mean(torch.min(cost_mat, dim=1)[0]))
-        return ot_dist, None
+        return ot_dist, None, torch.Tensor([0])
 
     # if random.random() < 0.05 and abs(np.sum(ot_mat).item() - 1.) > 1e-2:
         # print('ot mat' , ot_mat)
@@ -82,4 +82,23 @@ def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=Fa
     ot_mat_attached = torch.tensor(ot_mat, device='cuda' if cuda else 'cpu', requires_grad=False).float()
     ot_dist = torch.sum(ot_mat_attached * cost_mat)
 
-    return ot_dist, ot_mat_attached
+    all_nce_dists = []
+    all_nce_dists.append(-ot_dist)
+    for _ in range(5):
+        random_mat = ot_mat.copy()
+        np.random.shuffle(random_mat)
+        random_mat = torch.tensor(random_mat, device='cuda' if cuda else 'cpu', requires_grad=False).float()
+        all_nce_dists.append(-torch.sum(random_mat * cost_mat))
+
+    for _ in range(5):
+        random_mat = np.random.rand(H_1.shape[0], H_2.shape[0]) * 10.
+        while np.linalg.norm(np.sum(random_mat, axis=0) - H_2) > 1e-3 and\
+                np.linalg.norm(np.sum(random_mat, axis=1) - H_1) > 1e-3:
+            random_mat = random_mat / np.sum(random_mat, axis=0, keepdims=True) * H_2.reshape((1, H_2.shape[0]))
+            random_mat = random_mat / np.sum(random_mat, axis=1, keepdims=True) * H_1.reshape((H_1.shape[0], 1))
+        random_mat = torch.tensor(random_mat, device='cuda' if cuda else 'cpu', requires_grad=False).float()
+        all_nce_dists.append(-torch.sum(random_mat * cost_mat))
+
+    nce_reg = torch.nn.LogSoftmax(dim=0)(torch.stack(all_nce_dists))[0]
+
+    return ot_dist, ot_mat_attached, nce_reg

@@ -202,6 +202,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                 model=model,
                 data=val_data,
                 loss_func=loss_func,
+                beta=args.beta,
                 num_tasks=args.num_tasks,
                 metric_func=metric_func,
                 batch_size=args.batch_size,

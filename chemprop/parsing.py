@@ -166,6 +166,7 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--train_all', action='store_true', default=False,
                         help='Train model for all folds, even if test fold cannot be evaluated.')
     parser.add_argument('--neg_weight', type=float, default=1.0, help='Weighting for negative points')
+    parser.add_argument('--beta', type=float, default=0, help='Weighs beta for nce reg')
 
     # Model arguments
     parser.add_argument('--ensemble_size', type=int, default=1,

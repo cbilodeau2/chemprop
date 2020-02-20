@@ -42,7 +42,7 @@ def train(model: nn.Module,
     
     data.shuffle()
 
-    loss_sum, iter_count = 0, 0
+    loss_sum, reg_sum, iter_count = 0, 0, 0
 
     num_iters = len(data) // args.batch_size * args.batch_size  # don't use the last batch if it's small, for stability
 
@@ -71,7 +71,7 @@ def train(model: nn.Module,
 
         # Run model
         model.zero_grad()
-        preds = model(batch, features_batch)
+        preds, reg = model(batch, features_batch)
 
         if args.dataset_type == 'multiclass':
             targets = targets.long()
@@ -79,8 +79,11 @@ def train(model: nn.Module,
         else:
             loss = loss_func(preds, targets) * class_weights * mask
         loss = loss.sum() / mask.sum()
+        reg = reg.sum() / mask.sum()
+        loss = loss - args.beta * reg
 
         loss_sum += loss.item()
+        reg_sum += reg.item()
         iter_count += len(mol_batch)
 
         loss.backward()
@@ -99,13 +102,15 @@ def train(model: nn.Module,
             pnorm = compute_pnorm(model)
             gnorm = compute_gnorm(model)
             loss_avg = loss_sum / iter_count
+            reg_avg = reg_sum / iter_count
             loss_sum, iter_count = 0, 0
 
             lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
-            debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
+            debug(f'Loss = {loss_avg:.4e}, Reg = {reg:.3e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
 
             if writer is not None:
                 writer.add_scalar('train_loss', loss_avg, n_iter)
+                writer.add_scalar('train_reg', reg_avg, n_iter)
                 writer.add_scalar('param_norm', pnorm, n_iter)
                 writer.add_scalar('gradient_norm', gnorm, n_iter)
                 for i, lr in enumerate(lrs):
