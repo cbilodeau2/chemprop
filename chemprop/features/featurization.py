@@ -33,12 +33,15 @@ BOND_FDIM = 14
 
 # Memoization
 SMILES_TO_GRAPH = {}
+PAIRS_TO_COEFS = {}
 
 
 def clear_cache():
     """Clears featurization cache."""
     global SMILES_TO_GRAPH
     SMILES_TO_GRAPH = {}
+    global PAIRS_TO_COEFS
+    PAIRS_TO_COEFS = {}
 
 
 def get_atom_fdim(args: Namespace) -> int:
@@ -156,7 +159,7 @@ class MolGraph:
 
         # fake the number of "atoms" if we are collapsing substructures
         self.n_atoms = mol.GetNumAtoms()
-        
+
         # Get atom features
         for i, atom in enumerate(mol.GetAtoms()):
             self.f_atoms.append(atom_features(atom))
@@ -205,6 +208,7 @@ class BatchMolGraph:
     - bond_fdim: The dimensionality of the bond features (technically the combined atom/bond features).
     - a_scope: A list of tuples indicating the start and end atom indices for each molecule. [start index, len]
     - b_scope: A list of tuples indicating the start and end bond indices for each molecule.
+    - max_num_atoms: The maximum number of atoms in a molecule in this batch.
     - max_num_bonds: The maximum number of bonds neighboring an atom in this batch.
     - b2b: (Optional) A mapping from a bond index to incoming bond indices.
     - a2a: (Optional): A mapping from an atom index to neighboring atom indices.
@@ -229,6 +233,8 @@ class BatchMolGraph:
         a2b = [[]]  # mapping from atom index to incoming bond indices
         b2a = [0]  # mapping from bond index to the index of the atom the bond is coming from
         b2revb = [0]  # mapping from bond index to the index of the reverse bond
+
+        self.max_num_atoms = 0  # for attn purposes
         for mol_graph in mol_graphs:
             f_atoms.extend(mol_graph.f_atoms)
             f_bonds.extend(mol_graph.f_bonds)
@@ -244,6 +250,7 @@ class BatchMolGraph:
             self.b_scope.append((self.n_bonds, mol_graph.n_bonds))
             self.n_atoms += mol_graph.n_atoms
             self.n_bonds += mol_graph.n_bonds
+            self.max_num_atoms = max(self.max_num_atoms, mol_graph.n_atoms)
 
         self.max_num_bonds = max(1, max(len(in_bonds) for in_bonds in a2b)) # max with 1 to fix a crash in rare case of all single-heavy-atom mols
 
@@ -295,6 +302,59 @@ class BatchMolGraph:
             self.a2a = self.b2a[self.a2b]  # num_atoms x max_num_bonds
 
         return self.a2a
+
+
+def extractAoI(mol):
+    retElectro, retCharged = [], []
+    for i, atom in enumerate(mol.GetAtoms()):
+        if atom.GetSymbol() in electroneg:
+            retElectro.append(i)
+        if atom.GetFormalCharge() != 0:
+            retCharged.append(i)
+    return retElectro, retCharged
+
+
+def getHbonds(drug_batch: BatchMolGraph,
+        cmpd_batch: BatchMolGraph,
+        electroneg_weight: int = 2,
+        other_weight: int = 1) -> torch.LongTensor:
+    """
+    Converts pairs of BatchMolGraphs into a tensor that gives unnormalized weight btwn atoms.
+
+    :param drug_batch: A batch of the drug molecules of the pairs.
+    :param cmpd_batch: A batch of the cmpd molecules of the pairs.
+    :param electroneg_weight: Weight given to electronegative atoms.
+    :param other_weight: Weight given to other atoms.
+    :return: A Pytorch tensor that denotes attn coefficients between atoms.
+    """
+    dim1, dim2 = cmpd_batch.max_num_atoms, drug_batch.max_num_atoms
+    smiles_batch = zip(drug_batch.smiles_batch, cmpd_batch.smiles_batch)
+
+    coefs = []
+    for pair in smiles_batch:
+        if pair in PAIRS_TO_COEFS:
+            coef = PAIRS_TO_COEFS[pair]  # 1 x num_atoms_cmpd x num_atoms_drug
+        else:
+            drug, cmpd = Chem.MolFromSmiles(pair[0]), Chem.MolFromSmiles(pair[1])
+            drugElectro, drugCharged = extractAoI(drug)
+            cmpdElectro, cmpdCharged = extractAoI(cmpd)
+
+            coef = torch.empty(0).new_full((cmpd.GetNumAtoms(), drug.GetNumAtoms()),
+                    other_weight, dtype=torch.float, requires_grad=False)
+            i,j = zip(*product(cmpdElectro, drugElectro))
+            coef[i, j] = electroneg_weight
+            i,j = zip(*product(cmpdCharged, drugCharged))
+            coef[i, j] = electroneg_weight
+            coef = coef.masked_fill(coef == 0, -1e9).unsqueeze(0)
+
+            if not args.no_cache:
+                PAIRS_TO_COEFS[pair] = coef
+
+        _, i, j = coef.shape
+        coef = F.pad(coef, (0, dim1-i, 0, dim2-j), 'constant', -1e9)
+        coefs.append(coef)
+
+    return torch.stack(coefs, dim=0)
 
 
 def mol2graph(smiles_batch: List[str],

@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from chemprop.features import BatchMolGraph, get_atom_fdim, get_bond_fdim, mol2graph
+from chemprop.features import BatchMolGraph, get_atom_fdim, get_bond_fdim, mol2graph, getHBonds
 from chemprop.nn_utils import b_scope_tensor, batch_to_flat, flat_to_batch, index_select_ND, get_activation_function
 
 
@@ -75,20 +75,12 @@ class MPNEncoder(nn.Module):
         if self.undirected:
             message = (message + message[b2revb]) / 2
 
-        if self.atom_messages:
-            raise RuntimeError("Not supported yet!")
-            nei_a_message = index_select_ND(message, a2a)  # num_atoms x max_num_bonds x hidden
-            nei_f_bonds = index_select_ND(f_bonds, a2b)  # num_atoms x max_num_bonds x bond_fdim
-            nei_message = torch.cat((nei_a_message, nei_f_bonds), dim=2)  # num_atoms x max_num_bonds x hidden + bond_fdim
-            message = nei_message.sum(dim=1)  # num_atoms x hidden + bond_fdim
-        else:
-            # m(a1 -> a2) = [sum_{a0 \in nei(a1)} m(a0 -> a1)] - m(a2 -> a1)
-            # message      a_message = sum(nei_a_message)      rev_message
-            nei_a_message = index_select_ND(message, a2b)  # num_atoms x max_num_bonds x hidden
-            a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
-            rev_message = message[b2revb]  # num_bonds x hidden
-            message = a_message[b2a] - rev_message  # num_bonds x hidden
-        return message
+        # m(a1 -> a2) = [sum_{a0 \in nei(a1)} m(a0 -> a1)] - m(a2 -> a1)
+        # message      a_message = sum(nei_a_message)      rev_message
+        nei_a_message = index_select_ND(message, a2b)  # num_atoms x max_num_bonds x hidden
+        a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
+        rev_message = message[b2revb]  # num_bonds x hidden
+        return a_message[b2a] - rev_message  # num_bonds x hidden
 
     def agg_bonds_to_atoms(self, passed_message, f_atoms, a2x):
         nei_a_message = index_select_ND(passed_message, a2x)  # num_atoms x max_num_bonds x hidden
@@ -111,6 +103,50 @@ class MPNEncoder(nn.Module):
                 mol_vecs.append(mol_vec)
 
         return torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
+
+    def get_attn_coefs(self, mol_graph, struct_graph):
+        zero_vector = torch.zeros(1,self.hidden_size)
+        mol_f_atoms, mol_f_bonds, mol_a2b, mol_b2a, mol_b2revb, mol_a_scope, _ = mol_graph.get_components()
+        mol_b_scope, mol_b_revscope = b_scope_tensor(mol_a_scope)
+        struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb, struct_a_scope, _ = struct_graph.get_components()
+        struct_b_scope, struct_b_revscope = b_scope_tensor(struct_a_scope)
+
+        # Input
+        mol_input = self.W_i1(mol_f_bonds)  # num_bonds x hidden_size
+        struct_input = self.W_i2(struct_f_bonds)  # num_bonds x hidden_size
+
+        mol_message = self.act_func(mol_input)  # num_bonds x hidden_size
+        struct_message = self.act_func(struct_input)  # num_bonds x hidden_size
+
+        # Message passing
+        for depth in range(self.depth - 1):
+            mol_message = self.localMsg(mol_message, mol_a2b, mol_b2a, mol_b2revb)  # num_bonds x hidden
+            mol_message = self.act_func(mol_input + self.W_h1(mol_message))  # num_bonds x hidden_size
+            mol_message = self.dropout_layer(mol_message)  # num_bonds x hidden
+
+            struct_message = self.localMsg(struct_message, struct_a2b, struct_b2a, struct_b2revb)  # num_bonds x hidden
+            struct_message = self.act_func(struct_input + self.W_h2(struct_message))  # num_bonds x hidden_size
+            struct_message = self.dropout_layer(struct_message)  # num_bonds x hidden
+
+        # Aggregate into hidden state of atoms
+        mol_a_input = self.agg_bonds_to_atoms(mol_message, mol_f_atoms, mol_a2b)
+        struct_a_input = self.agg_bonds_to_atoms(struct_message, struct_f_atoms, struct_a2b)
+
+        # Project into query space for attn scores
+        mol_attn = self.W_q(mol_a_input)
+        mol_attn = flat_to_batch(mol_attn, mol_b_scope)  # reshape into batches
+        struct_attn = flat_to_batch(struct_a_input, struct_b_scope)  # batch x max_Natoms_struct x f_atoms_dim
+
+        # Calculate attn scores
+        scores = torch.bmm(struct_attn, torch.transpose(mol_attn, dim0=1, dim1=2))  # dot prod
+        scores = scores/np.sqrt(self.attn_dim)  # normalize by dim
+        scores = scores.masked_fill(scores == 0, -1e9)
+
+        # sum scores * msg of mol
+        struct_scores = F.softmax(scores, dim=1)  # max_Natoms_struct x max_Natoms_mol
+        mol_scores = F.softmax(torch.transpose(scores, dim0=1, dim1=2), dim=1)  # max_Natoms_mol x max_Natoms_struct
+
+        return mol_scores, struct_scores
 
     def forward(self, # TODO: refactor for consistency. mol <=> drug. struct <=> cmpd.
                 mol_graph: BatchMolGraph, # mols we attend to
@@ -204,6 +240,7 @@ class MPNEncoder(nn.Module):
         mol_add_attn = mol_add_attn.sum(dim=1)
         mol_add_attn = batch_to_flat(mol_add_attn, mol_b_revscope)
 
+        # See viz for dim comments
         mol_scores = F.softmax(torch.transpose(scores, dim0=1, dim1=2), dim=1)
         struct_add_attn = torch.matmul(mol_scores.unsqueeze(-1), mol_val.unsqueeze(2))
         struct_add_attn = struct_add_attn.sum(dim=1)
@@ -275,7 +312,8 @@ class DualMPN(nn.Module):
         if not self.graph_input:  # if features only, batch won't even be used
             drug_batch = mol2graph(drug_batch, self.args)
             cmpd_batch = mol2graph(cmpd_batch, self.args)
+            attn_coefs = getHbonds(drug_batch, cmpd_batch)
 
-        output = self.encoder.forward(drug_batch, cmpd_batch, drug_feats, cmpd_feats)
+        output = self.encoder.forward(drug_batch, cmpd_batch, drug_feats, cmpd_feats, attn_coefs)
 
         return output
