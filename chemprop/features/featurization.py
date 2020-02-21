@@ -317,7 +317,7 @@ def extractAoI(mol):
 def getHbonds(drug_batch: BatchMolGraph,
         cmpd_batch: BatchMolGraph,
         electroneg_weight: int = 2,
-        other_weight: int = 1) -> torch.LongTensor:
+        other_weight: int = 1) -> torch.FloatTensor:
     """
     Converts pairs of BatchMolGraphs into a tensor that gives unnormalized weight btwn atoms.
 
