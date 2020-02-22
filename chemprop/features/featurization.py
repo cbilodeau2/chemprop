@@ -1,8 +1,10 @@
 from argparse import Namespace
 from typing import List, Tuple, Union
 
+from itertools import product
 from rdkit import Chem
 import torch
+import torch.nn.functional as F
 
 # Atom feature sizes
 MAX_ATOMIC_NUM = 100
@@ -20,6 +22,7 @@ ATOM_FEATURES = {
         Chem.rdchem.HybridizationType.SP3D2
     ],
 }
+ELECTRONEGATIVE_ATOMS = set(['O', 'N', 'Cl', 'F', 'S'])
 
 # Distance feature sizes
 PATH_DISTANCE_BINS = list(range(10))
@@ -307,7 +310,7 @@ class BatchMolGraph:
 def extractAoI(mol):
     retElectro, retCharged = [], []
     for i, atom in enumerate(mol.GetAtoms()):
-        if atom.GetSymbol() in electroneg:
+        if atom.GetSymbol() in ELECTRONEGATIVE_ATOMS:
             retElectro.append(i)
         if atom.GetFormalCharge() != 0:
             retCharged.append(i)
@@ -317,7 +320,8 @@ def extractAoI(mol):
 def getHbonds(drug_batch: BatchMolGraph,
         cmpd_batch: BatchMolGraph,
         electroneg_weight: int = 2,
-        other_weight: int = 1) -> torch.FloatTensor:
+        other_weight: int = 1,
+        no_cache: bool = False) -> torch.FloatTensor:
     """
     Converts pairs of BatchMolGraphs into a tensor that gives unnormalized weight btwn atoms.
 
@@ -325,6 +329,7 @@ def getHbonds(drug_batch: BatchMolGraph,
     :param cmpd_batch: A batch of the cmpd molecules of the pairs.
     :param electroneg_weight: Weight given to electronegative atoms.
     :param other_weight: Weight given to other atoms.
+    :param no_cache: True if do not want to use caching.
     :return: A Pytorch tensor that denotes attn coefficients between atoms.
     """
     dim1, dim2 = cmpd_batch.max_num_atoms, drug_batch.max_num_atoms
@@ -341,20 +346,22 @@ def getHbonds(drug_batch: BatchMolGraph,
 
             coef = torch.empty(0).new_full((cmpd.GetNumAtoms(), drug.GetNumAtoms()),
                     other_weight, dtype=torch.float, requires_grad=False)
-            i,j = zip(*product(cmpdElectro, drugElectro))
-            coef[i, j] = electroneg_weight
-            i,j = zip(*product(cmpdCharged, drugCharged))
-            coef[i, j] = electroneg_weight
+            if len(cmpdElectro) > 0 and len(drugElectro) > 0:
+                i,j = zip(*product(cmpdElectro, drugElectro))
+                coef[i, j] = electroneg_weight
+            if len(cmpdCharged) > 0 and len(drugCharged) > 0:
+                i,j = zip(*product(cmpdCharged, drugCharged))
+                coef[i, j] = electroneg_weight
             coef = coef.masked_fill(coef == 0, -1e9).unsqueeze(0)
 
-            if not args.no_cache:
+            if not no_cache:
                 PAIRS_TO_COEFS[pair] = coef
 
         _, i, j = coef.shape
-        coef = F.pad(coef, (0, dim1-i, 0, dim2-j), 'constant', -1e9)
+        coef = F.pad(coef, (0, dim2-j, 0, dim1-i), 'constant', -1e9)
         coefs.append(coef)
 
-    return torch.stack(coefs, dim=0)
+    return torch.stack(coefs, dim=1).squeeze(0)
 
 
 def mol2graph(smiles_batch: List[str],
