@@ -1,12 +1,12 @@
 from argparse import Namespace
-from typing import List, Union
+from typing import List, Union, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from chemprop.features import BatchMolGraph, get_atom_fdim, get_bond_fdim, mol2graph, getHBonds
+from chemprop.features import BatchMolGraph, get_atom_fdim, get_bond_fdim, mol2graph, getHbonds
 from chemprop.nn_utils import b_scope_tensor, batch_to_flat, flat_to_batch, index_select_ND, get_activation_function
 
 
@@ -143,6 +143,7 @@ class MPNEncoder(nn.Module):
             struct_f_atoms, struct_f_bonds, struct_a2b, struct_b2a, struct_b2revb = struct_f_atoms.cuda(), struct_f_bonds.cuda(), struct_a2b.cuda(), struct_b2a.cuda(), struct_b2revb.cuda()
             struct_b_scope, struct_b_revscope = struct_b_scope.cuda(), struct_b_revscope.cuda()
             zero_vector = zero_vector.cuda()
+            attn_coefs = attn_coefs.cuda()
 
             if self.atom_messages:
                 a2a = a2a.cuda()
@@ -268,7 +269,7 @@ class DualMPN(nn.Module):
         if not self.graph_input:  # if features only, batch won't even be used
             drug_batch = mol2graph(drug_batch, self.args)
             cmpd_batch = mol2graph(cmpd_batch, self.args)
-            attn_coefs = getHbonds(drug_batch, cmpd_batch)
+            attn_coefs = getHbonds(drug_batch, cmpd_batch, no_cache=self.args.no_cache)
 
         output = self.encoder.forward(drug_batch, cmpd_batch, attn_coefs, drug_feats, cmpd_feats)
 
