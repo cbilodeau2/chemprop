@@ -20,7 +20,7 @@ class MoleculeModel(nn.Module):
         """
         super(MoleculeModel, self).__init__()
 
-        self.softmax=nn.LogSoftmax(dim=0)
+        self.logsoftmax=nn.LogSoftmax(dim=0)
         assert (classification and not multiclass)
 
     def init_embeddings(self, args: Namespace,
@@ -76,7 +76,7 @@ class MoleculeModel(nn.Module):
         if self.training:
             start, ret = 0, []
             for size in lengths:
-                ret.append(self.softmax(output[start:start+size])[0])  # only the pos one
+                ret.append(self.logsoftmax(output[start:start+size])[0])  # only the pos one
                 start += size
             ret = torch.cat(ret)
             return ret
