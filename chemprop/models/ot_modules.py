@@ -5,7 +5,7 @@ import numpy as np
 import random
 
 
-def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost=True):
+def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost):
     '''Computes the l2 cost matrix between two point cloud inputs.
 
     Args:
@@ -31,7 +31,7 @@ def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost=True):
     elif dist_type == 'dot':
         cost_mat = - X_1.matmul(X_2.transpose(0,1))
         if rescale_cost:
-            cost_mat = cost_mat / abs(cost_mat.max())
+            cost_mat = cost_mat / abs(cost_mat.min())
 
     else:
         raise NotImplementedError('Unsupported dist type')
@@ -39,18 +39,16 @@ def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost=True):
     return cost_mat
 
 
-def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=False):
+def compute_ot(X_1, X_2, cuda, dist_type, opt_method='emd', rescale_cost=False):
     ''' Computes the optimal transport distance
 
     Args:
         X_1: [#nodes_1, #features] point cloud, tensor
         X_2: [#nodes_2, #features] point cloud, tensor
-        H_1: [#nodes_1] histogram, numpy array
-        H_2: [#nodes_2] histogram, numpy array
-        dist_type: 'l2' or 'dot'
         cuda: bool indiciating if gpu should be used
+        dist_type: Distance for cost matrix. {l2, dot}
         opt_method: The optimization method {emd, wmd}
-        rescale_cost: Whether to normalize the cost matrix by the max ele. Get errors if you do this
+        rescale_cost: Whether to normalize the cost matrix to be btwn [0,1].
     '''
     drug_numAtoms, cmpd_numAtoms = X_1.shape[0], X_2.shape[0]
     H_1 = np.ones(drug_numAtoms)/drug_numAtoms
@@ -66,18 +64,6 @@ def compute_ot(X_1, X_2, cuda, dist_type='l2', opt_method='emd', rescale_cost=Fa
     elif opt_method == 'wmd':
         ot_dist = torch.max(torch.mean(torch.min(cost_mat, dim=0)[0]), torch.mean(torch.min(cost_mat, dim=1)[0]))
         return ot_dist, None, torch.Tensor([0])
-
-    # if random.random() < 0.05 and abs(np.sum(ot_mat).item() - 1.) > 1e-2:
-        # print('ot mat' , ot_mat)
-        # print('positive cost mat', np.max(np.abs(cost_mat_detach)) + cost_mat_detach)
-        # print('cost mat', cost_mat_detach)
-        # print('x1', X_1)
-        # print('x2', X_2)
-        # print('h1', H_1)
-        # print('h2', H_2)
-        # print('sum rows', ot_mat.sum(1) * H_1.shape[0])
-        # print('sum cols', ot_mat.sum(0) * H_2.shape[0])
-        # assert abs(np.sum(ot_mat).item() - 1.) < 1e-2
 
     ot_mat_attached = torch.tensor(ot_mat, device='cuda' if cuda else 'cpu', requires_grad=False).float()
     ot_dist = torch.sum(ot_mat_attached * cost_mat)

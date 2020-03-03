@@ -58,15 +58,13 @@ class MoleculeModel(nn.Module):
         nce_regs = []
         for i, drug in enumerate(learned_drugs):
             cmpd = learned_cmpds[i]
-            dist, _, nce_reg = compute_ot(drug, cmpd, self.gpu, opt_method=self.dist) #, dist_type='dot', rescale_cost=True)
+            dist, _, nce_reg = compute_ot(drug, cmpd, self.gpu, opt_method='emd', dist_type=self.dist, rescale_cost=False)
             output.append(dist)
             nce_regs.append(nce_reg)
         output = torch.stack(output, dim=0).unsqueeze(-1)
         nce_regs = torch.stack(nce_regs, dim=0).unsqueeze(-1)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if self.classification:
-            output = -output
         if self.classification and not self.training:  # is identity if mse loss
             output = self.activation(output)
         if self.regression:
