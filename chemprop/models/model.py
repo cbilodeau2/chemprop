@@ -41,11 +41,10 @@ class MoleculeModel(nn.Module):
         else:
             self.cmpd_encoder = MPN(args)
 
-    def viz(self, *input):
-        smiles, feats = input
+    def viz(self, drug_inp, cmpd_inp):
 
-        learned_drugs = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
-        learned_cmpds = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+        learned_drugs = self.drug_encoder(drug_inp)
+        learned_cmpds = self.cmpd_encoder(cmpd_inp)
         assert len(learned_drugs) == len(learned_cmpds)
 
         transport = []
@@ -53,7 +52,6 @@ class MoleculeModel(nn.Module):
             cmpd = learned_cmpds[i]
             _, ot, _ = compute_ot(drug, cmpd, self.gpu, self.dist, opt_method='emd')
             transport.append(ot)
-        transport = torch.stack(transport, dim=0).unsqueeze(-1)
 
         return transport
 
