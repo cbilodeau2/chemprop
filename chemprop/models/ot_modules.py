@@ -5,13 +5,13 @@ import numpy as np
 import random
 
 
-def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost):
+def compute_cost_mat(X_1, X_2, dist_type='dot'):
     '''Computes the l2 cost matrix between two point cloud inputs.
 
     Args:
         X_1: [#nodes_1, #features] point cloud, tensor
         X_2: [#nodes_2, #features] point cloud, tensor
-        rescale_cost: Whether to normalize the cost matrix by the max ele
+        dist_type: Which distance metric to use {dot, l2}
 
     Output:
         [#nodes_1, #nodes_2] matrix of the l2 distance between point pairs
@@ -25,21 +25,15 @@ def compute_cost_mat(X_1, X_2, dist_type='l2', rescale_cost):
         X_2 = X_2.view(1, n_2, -1)
         squared_dist = (X_1 - X_2) ** 2
         cost_mat = torch.sum(squared_dist, dim=2)
-        if rescale_cost:
-            cost_mat = cost_mat / cost_mat.max()
-
     elif dist_type == 'dot':
         cost_mat = - X_1.matmul(X_2.transpose(0,1))
-        if rescale_cost:
-            cost_mat = cost_mat / abs(cost_mat.min())
-
     else:
         raise NotImplementedError('Unsupported dist type')
 
     return cost_mat
 
 
-def compute_ot(X_1, X_2, cuda, dist_type, opt_method='emd', rescale_cost=False):
+def compute_ot(X_1, X_2, cuda, dist_type, opt_method='emd'):
     ''' Computes the optimal transport distance
 
     Args:
@@ -48,13 +42,12 @@ def compute_ot(X_1, X_2, cuda, dist_type, opt_method='emd', rescale_cost=False):
         cuda: bool indiciating if gpu should be used
         dist_type: Distance for cost matrix. {l2, dot}
         opt_method: The optimization method {emd, wmd}
-        rescale_cost: Whether to normalize the cost matrix to be btwn [0,1].
     '''
     drug_numAtoms, cmpd_numAtoms = X_1.shape[0], X_2.shape[0]
     H_1 = np.ones(drug_numAtoms)/drug_numAtoms
     H_2 = np.ones(cmpd_numAtoms)/cmpd_numAtoms
 
-    cost_mat = compute_cost_mat(X_1, X_2, dist_type, rescale_cost=rescale_cost)
+    cost_mat = compute_cost_mat(X_1, X_2, dist_type=dist_type)
     # Convert cost matrix to numpy array to feed into sinkhorn algorithm
     cost_mat_detach = cost_mat.detach().cpu().numpy()
     if opt_method == 'emd':

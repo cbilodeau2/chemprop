@@ -41,6 +41,22 @@ class MoleculeModel(nn.Module):
         else:
             self.cmpd_encoder = MPN(args)
 
+    def viz(self, *input):
+        smiles, feats = input
+
+        learned_drugs = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
+        learned_cmpds = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
+        assert len(learned_drugs) == len(learned_cmpds)
+
+        transport = []
+        for i, drug in enumerate(learned_drugs):
+            cmpd = learned_cmpds[i]
+            _, ot, _ = compute_ot(drug, cmpd, self.gpu, self.dist, opt_method='emd')
+            transport.append(ot)
+        transport = torch.stack(transport, dim=0).unsqueeze(-1)
+
+        return transport
+
     def forward(self, *input):
         """
         Runs the MoleculeModel on input.
@@ -58,7 +74,7 @@ class MoleculeModel(nn.Module):
         nce_regs = []
         for i, drug in enumerate(learned_drugs):
             cmpd = learned_cmpds[i]
-            dist, _, nce_reg = compute_ot(drug, cmpd, self.gpu, opt_method='emd', dist_type=self.dist, rescale_cost=False)
+            dist, _, nce_reg = compute_ot(drug, cmpd, self.gpu, self.dist, opt_method='emd')
             output.append(dist)
             nce_regs.append(nce_reg)
         output = torch.stack(output, dim=0).unsqueeze(-1)
