@@ -4,7 +4,6 @@ from typing import Dict, List, Union
 import torch
 import torch.nn as nn
 
-from .mpn import MPN
 from .embed import Embedding
 from chemprop.nn_utils import get_activation_function, initialize_weights
 
@@ -28,7 +27,7 @@ class MoleculeModel(nn.Module):
             self.multiclass_softmax = nn.Softmax(dim=2)
         assert not (self.classification and self.multiclass)
 
-    def init_embeddings(self, args: Namespace,
+    def create_embeddings(self, args: Namespace,
             drug_set: Union[Dict[str, int], List[str]],
             cmpd_set: Union[Dict[str, int], List[str]]):
         """
@@ -162,12 +161,7 @@ def build_model(args: Namespace,
 
     model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass')
     model.create_ffn(args)
-
-    if args.embedding:
-        initialize_weights(model)  # initialize xavier for ffn and uniform for embeddings
-        model.init_embeddings(args, drug_set, cmpd_set)
-    else:
-        model.create_encoder(args)
-        initialize_weights(model)  # initialize xavier for both
+    initialize_weights(model)  # initialize xavier for ffn and uniform for embeddings
+    model.create_embeddings(args, drug_set, cmpd_set)
 
     return model

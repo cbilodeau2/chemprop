@@ -10,8 +10,6 @@ import time
 from hyperopt import fmin, hp, tpe
 import numpy as np
 
-from chemprop.models import build_model
-from chemprop.nn_utils import param_count
 from chemprop.parsing import add_train_args, modify_train_args
 from chemprop.train import cross_validate
 from chemprop.utils import create_logger, makedirs
@@ -19,11 +17,10 @@ from chemprop.utils import create_logger, makedirs
 
 SPACE = {
     'hidden_size': hp.quniform('hidden_size', low=300, high=2400, q=100),
-    'depth': hp.quniform('depth', low=2, high=6, q=1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
     'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1)
 }
-INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers']
+INT_KEYS = ['hidden_size', 'ffn_num_layers']
 
 
 def grid_search(args: Namespace):
@@ -55,19 +52,12 @@ def grid_search(args: Namespace):
         mean_score, std_score = cross_validate(hyper_args, train_logger)
 
         # Record results
-        if not args.embedding:
-            temp_model = build_model(hyper_args)
-            num_params = param_count(temp_model)
-        else:
-            num_params = -1
-        logger.info(f'num params: {num_params:,}')
         logger.info(f'{mean_score} +/- {std_score} {hyper_args.metric}')
 
         results.append({
             'mean_score': mean_score,
             'std_score': std_score,
             'hyperparams': hyperparams,
-            'num_params': num_params
         })
 
         # Deal with nan
@@ -86,7 +76,6 @@ def grid_search(args: Namespace):
     best_result = min(results, key=lambda result: (1 if args.minimize_score else -1) * result['mean_score'])
     logger.info('best')
     logger.info(best_result['hyperparams'])
-    logger.info(f'num params: {best_result["num_params"]:,}')
     logger.info(f'{best_result["mean_score"]} +/- {best_result["std_score"]} {args.metric}')
 
     # Save best hyperparameter settings as JSON config file
