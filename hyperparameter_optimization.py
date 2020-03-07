@@ -55,11 +55,8 @@ def grid_search(args: Namespace):
         mean_score, std_score = cross_validate(hyper_args, train_logger)
 
         # Record results
-        if not args.embedding:
-            temp_model = build_model(hyper_args)
-            num_params = param_count(temp_model)
-        else:
-            num_params = -1
+        temp_model = build_model(hyper_args)
+        num_params = param_count(temp_model)
         logger.info(f'num params: {num_params:,}')
         logger.info(f'{mean_score} +/- {std_score} {hyper_args.metric}')
 
