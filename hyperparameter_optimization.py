@@ -23,7 +23,7 @@ SPACE = {
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
     'beta': hp.loguniform('beta', low=-5, high=-1),
 }
-INT_KEYS = ['depth', 'hidden_size', 'ffn_num_layers']
+INT_KEYS = ['depth', 'hidden_size']
 
 
 def grid_search(args: Namespace):
@@ -55,11 +55,8 @@ def grid_search(args: Namespace):
         mean_score, std_score = cross_validate(hyper_args, train_logger)
 
         # Record results
-        if not args.embedding:
-            temp_model = build_model(hyper_args)
-            num_params = param_count(temp_model)
-        else:
-            num_params = -1
+        temp_model = build_model(hyper_args)
+        num_params = param_count(temp_model)
         logger.info(f'num params: {num_params:,}')
         logger.info(f'{mean_score} +/- {std_score} {hyper_args.metric}')
 

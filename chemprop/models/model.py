@@ -1,5 +1,4 @@
 from argparse import Namespace
-from typing import Dict, List, Union
 
 import torch
 import torch.nn as nn
@@ -87,11 +86,9 @@ class MoleculeModel(nn.Module):
         return output, nce_regs
 
 
-def build_model(args: Namespace,
-        drug_set: Union[Dict[str, int], List[str]] = None,
-        cmpd_set: Union[Dict[str, int], List[str]] = None) -> nn.Module:
+def build_model(args: Namespace) -> nn.Module:
     """
-    Builds a MoleculeModel, which is a message passing neural network + feed-forward layers. If smiles sets are provided, then independent embeddings replace the MPNN.
+    Builds a MoleculeModel, which is a message passing neural network + feed-forward layers.
 
     :param args: Arguments.
     :return: A MoleculeModel containing the MPN encoder along with final linear layers with parameters initialized.

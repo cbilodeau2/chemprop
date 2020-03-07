@@ -190,8 +190,6 @@ def add_train_args(parser: ArgumentParser):
                         help='Number of layers in FFN after MPN encoding')
     parser.add_argument('--atom_messages', action='store_true', default=False,
                         help='Use messages on atoms instead of messages on bonds')
-    parser.add_argument('--embedding', action='store_true', default=False,
-                        help='If true, uses independent embedding layer instead of MPN.')
     parser.add_argument('--dist', type=str, default='dot', choices=['l2', 'dot'],
                         help='Which type of distance to use for OT cost matrix')
 
