@@ -160,6 +160,7 @@ def add_train_args(parser: ArgumentParser):
                         help='Maximum learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4,
                         help='Final learning rate')
+    parser.add_argument('--grad_clip', type=float, default=0, help='Clips grad norm if set')
     parser.add_argument('--no_features_scaling', action='store_true', default=False,
                         help='Turn off scaling of features')
     parser.add_argument('--train_all', action='store_true', default=False,
@@ -190,8 +191,6 @@ def add_train_args(parser: ArgumentParser):
                         help='Use messages on atoms instead of messages on bonds')
     parser.add_argument('--sample_ratio', type=int, default=10,
                         help='Number of neg samples used in softmax')
-    parser.add_argument('--embedding', action='store_true', default=False,
-                        help='If true, uses independent embedding layer instead of MPN.')
 
     # Experiment
     parser.add_argument('--scale_lr', action='store_true', default=False,

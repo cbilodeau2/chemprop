@@ -1,5 +1,6 @@
 from argparse import Namespace
 import csv
+from collections import defaultdict
 from logging import Logger
 import pickle
 import random
@@ -197,15 +198,6 @@ def get_data_from_smiles(smiles: List[str], skip_invalid_smiles: bool = True, lo
     return data
 
 
-def get_smiles_sets(data: MolPairDataset) -> Tuple[List[str], List[str]]:
-    """
-    Extracts set of smiles seen in dataset.
-
-    :param data: A MolPairDataset.
-    """
-    drug, cmpd = zip(*data.smiles())
-    return (list(set(drug)), list(set(cmpd)))
-
 def split_data(data: MolPairDataset,
                split_type: str = 'random',
                sizes: Tuple[float, float, float] = (0.8, 0.1, 0.1),
@@ -231,6 +223,7 @@ def split_data(data: MolPairDataset,
     if args is not None:
         folds_file, val_fold_index, test_fold_index = \
             args.folds_file, args.val_fold_index, args.test_fold_index
+
     else:
         folds_file = val_fold_index = test_fold_index = None
 
@@ -241,12 +234,18 @@ def split_data(data: MolPairDataset,
     elif split_type == 'scaffold_balanced':
         raise NotImplementedError('not valid for pairs yet')
 
-    elif split_type in ['predetermined', 'loocv']:
-        raise NotImplementedError('not valid for pairs yet')
-        # if not val_fold_index:
-            # assert sizes[2] == 0  # test set is created separately so use all of the other data for train and val
-        # assert folds_file is not None
-        # assert test_fold_index is not None
+    elif split_type == 'predetermined':
+        assert sizes[2] == 0  # test set is created separately so use all of the other data for train and val
+        assert folds_file is not None
+        assert test_fold_index is not None
+
+        try:
+            with open(folds_file, 'rb') as f:
+                all_fold_indices = pickle.load(f)
+        except UnicodeDecodeError:
+            with open(folds_file, 'rb') as f:
+                all_fold_indices = pickle.load(f, encoding='latin1')  # in case we're loading indices from python2
+        # assert len(data) == sum([len(fold_indices) for fold_indices in all_fold_indices])
 
         # try:
             # with open(folds_file, 'rb') as f:
@@ -282,6 +281,9 @@ def split_data(data: MolPairDataset,
 
         # return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
 
+    elif split_type == 'loocv':
+        raise ValueError("Deprecated. Call loocv splitting.")
+
     elif split_type == 'random':
         data.shuffle(seed=seed)
 
@@ -300,6 +302,60 @@ def split_data(data: MolPairDataset,
 
     else:
         raise ValueError(f'split_type "{split_type}" not supported.')
+
+
+def split_loocv(data: MolPairDataset,
+        args: Namespace = None,
+        logger: Logger = None,
+        val_size: int = 1) -> Tuple[MolPairDataset, MolPairDataset, MolPairDataset]:
+    """
+    Splits data into training, validation, and test splits.
+
+    :param data: A MolPairDataset.
+    :param args: Namespace of arguments.
+    :param logger: A logger.
+    :param val_size: Number of rows to select for validation set. Can be >= 0.
+    :return: A tuple containing the train, validation, and test splits of the data.
+    """
+    debug = logger.debug if logger is not None else print
+
+    assert len(data[0].targets) == 1
+    test_fold_index = args.seed%args.num_folds
+
+    unique = defaultdict(list)
+    targets = defaultdict(set)
+    for pair in data:
+        unique[pair.drug_smiles].append(pair)
+        targets[pair.drug_smiles].add(pair.targets[0])
+
+    # Select test split
+    keys = list(sorted(unique.keys()))
+    test_key = keys[test_fold_index]
+    del keys[test_fold_index]
+    debug(f'Test split for {test_key}.')
+
+    # Remove invalid candidates for val splits
+    for key in targets:
+        if len(targets[key]) == 1:
+            debug(f'No variety in targets: removing from splits {key}.')
+            if key != test_key:  # bc it would've already been removed
+                keys.remove(key)
+
+    # Select val split
+    random.seed(args.seed)
+    val = []
+    for num in range(val_size):
+        val_key = random.choice(keys)
+        val.extend( unique[val_key] )
+        keys.remove(val_key)
+        debug(f'Val split randomly selected as {val_key}.')
+
+    train = []
+    for key in keys:
+        train.extend(unique[key])
+
+    test = unique[test_key]
+    return MolPairDataset(train), MolPairDataset(val), MolPairDataset(test)
 
 
 def _assure_val_split(train, val, train_size, seed):
