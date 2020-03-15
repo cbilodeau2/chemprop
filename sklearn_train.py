@@ -19,10 +19,15 @@ if __name__ == '__main__':
                         help='scikit-learn model to use')
     parser.add_argument('--num_trees', type=int, default=500,
                         help='Number of random forest trees')
+    parser.add_argument('--shuffle', action='store_true', default=False,
+                        help='Using shuffled data during loocv.')
     args = parser.parse_args()
     modify_train_args(args)
 
     logger = create_logger(name='sklearn-train', save_dir=args.save_dir, quiet=args.quiet)
+
+    if args.shuffle:
+        assert args.split_type == 'loocv'
 
     if args.metric is None:
         if args.dataset_type == 'regression':

@@ -11,7 +11,7 @@ from sklearn.svm import SVC, SVR
 from tqdm import trange, tqdm
 
 from chemprop.data import MolPairDataset
-from chemprop.data.utils import get_data, split_data
+from chemprop.data.utils import get_data, split_data, split_loocv
 from chemprop.features import get_features_generator
 from chemprop.train.evaluate import evaluate_predictions
 from chemprop.utils import get_metric_func, makedirs
@@ -99,20 +99,32 @@ def run_sklearn(args: Namespace, logger: Logger = None) -> List[float]:
     metric_func = get_metric_func(args.metric)
 
     debug('Loading data')
-    data = get_data(path=args.data_path)
+    if args.shuffle:
+        data_path = os.path.join(os.path.dirname(args.data_path), f'agg_{args.seed}.csv')
+    else:
+        data_path = args.data_path
+    data = get_data(path=data_path)
 
     if args.model_type == 'svm' and data.num_tasks() != 1:
         raise ValueError(f'SVM can only handle single-task data but found {data.num_tasks()} tasks')
 
     debug(f'Splitting data with seed {args.seed}')
     # Need to have val set so that train and test sets are the same as when doing MPN
-    train_data, _, test_data = split_data(
-        data=data,
-        split_type=args.split_type,
-        seed=args.seed,
-        sizes=args.split_sizes,
-        args=args
-    )
+    if args.split_type == 'loocv':
+        train_data, _, test_data = split_loocv(
+            data=data,
+            args=args,
+            logger=logger,
+            val_size = 0
+        )
+    else:
+        train_data, _, test_data = split_data(
+            data=data,
+            split_type=args.split_type,
+            seed=args.seed,
+            sizes=args.split_sizes,
+            args=args
+        )
 
     debug(f'Total size = {len(data):,} | train size = {len(train_data):,} | test size = {len(test_data):,}')
 
@@ -166,9 +178,6 @@ def cross_validate_sklearn(args: Namespace, logger: Logger = None) -> Tuple[floa
     init_seed = args.seed
     save_dir = args.save_dir
 
-    if args.split_type == 'loocv':
-        args.split_sizes = (0.9, 0.1, 0.0)
-
     # Run training on different random seeds for each fold
     all_scores = []
     for fold_num in range(args.num_folds):
@@ -176,8 +185,6 @@ def cross_validate_sklearn(args: Namespace, logger: Logger = None) -> Tuple[floa
         args.seed = init_seed + fold_num
         args.save_dir = os.path.join(save_dir, f'fold_{fold_num}')
         makedirs(args.save_dir)
-        if args.split_type == 'loocv':
-            args.test_fold_index = fold_num
 
         model_scores = run_sklearn(args, logger)
         all_scores.append(model_scores)
