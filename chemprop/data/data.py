@@ -153,7 +153,7 @@ class MolPairDataset(Dataset):
         """
         return [(d.drug_mol, d.cmpd_mol) for d in self.data]
 
-    def features(self) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def features(self, concat=False) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
         Returns the features associated with each molecule (if they exist).
 
@@ -164,6 +164,8 @@ class MolPairDataset(Dataset):
         # if self.data[0].drug_feats is None and self.data[0].cmpd_feats is None)
         # TODO fix
 
+        if concat:
+            return [np.concatenate((d.drug_feats, d.cmpd_feats)) for d in self.data]
         return [(d.drug_feats, d.cmpd_feats) for d in self.data]
 
     def targets(self) -> List[List[float]]:
