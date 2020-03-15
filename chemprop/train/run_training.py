@@ -16,7 +16,7 @@ from .evaluate import evaluate, evaluate_predictions
 from .predict import predict, save_predictions
 from .train import train
 from chemprop.data import StandardScaler
-from chemprop.data.utils import get_class_sizes, get_data, get_task_names, split_data, get_smiles_sets
+from chemprop.data.utils import get_class_sizes, get_data, get_task_names, split_data, split_loocv, get_smiles_sets
 from chemprop.models import build_model
 from chemprop.nn_utils import param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
@@ -67,7 +67,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
     elif args.separate_test_path:
         train_data, val_data, _ = split_data(data=data, split_type=args.split_type, sizes=(0.8, 0.2, 0.0), seed=args.seed, args=args, logger=logger)
     elif args.split_type == 'loocv':
-        train_data, val_data, test_data = split_data(data=data, split_type=args.split_type, sizes=(0.9, 0.1, 0.0), seed=args.seed, args=args, logger=logger)
+        train_data, val_data, test_data = split_loocv(data=data, args=args, logger=logger)
     else:
         train_data, val_data, test_data = split_data(data=data, split_type=args.split_type, sizes=args.split_sizes, seed=args.seed, args=args, logger=logger)
 
