@@ -10,16 +10,21 @@ from chemprop.nn_utils import get_activation_function, initialize_weights
 class MoleculeModel(nn.Module):
     """A MoleculeModel is a model which contains a message passing network following by feed-forward layers."""
 
-    def __init__(self, output_raw: bool):
+    def __init__(self, args: Namespace):
         """
         Initializes the MoleculeModel.
 
-        :param raw_score: Whether the model should apply activation to output.
+        :param args: Arguments.
         """
         super(MoleculeModel, self).__init__()
+        self.create_encoder(args)
+        self.create_ffn(args)
+        initialize_weights(self)
+        self.create_contexts(args)  # Has uniform initialization rather than Xavier
 
+        self.softmax = nn.Softmax(dim=1)
         self.activation = nn.Identity()
-        if output_raw:
+        if args.output_raw:
             self.activation = nn.Sigmoid()
 
     def create_encoder(self, args: Namespace):
@@ -28,8 +33,16 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-        self.drug_encoder = MPN(args) if not args.cmpd_only else None
-        self.cmpd_encoder = MPN(args) if not args.drug_only else None
+        self.drug_encoder = MPN(args)
+        self.cmpd_encoder = MPN(args)
+
+    def create_contexts(self, args: Namespace):
+        self.contexts = nn.Embedding(args.n_contexts, args.hidden_size)
+        self.contexts.weight.data.uniform_(-0.001, 0.001)
+
+        self.index = torch.as_tensor([list(range(args.n_contexts))], dtype=torch.long)
+        if args.cuda:
+            self.index = self.index.cuda()
 
     def create_ffn(self, args: Namespace):
         """
@@ -88,27 +101,24 @@ class MoleculeModel(nn.Module):
         :param input: Input.
         :return: The output of the MoleculeModel.
         """
-        smiles, feats = input
+        smiles, _ = input  # smiles looks like [(d1,c1), (d2,c2), ...]
+        drugs, cmpds = zip(*smiles)
 
-        newInput = []
-        if self.drug_encoder:
-            learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
-            newInput.append(learned_drug)
-        if self.cmpd_encoder:
-            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
-            newInput.append(learned_cmpd)
+        drug_embeds = self.drug_encoder(drugs).squeeze(-1)
+        contexts_embeds = self.contexts(self.index).squeeze(0)
+        distr = torch.matmul(drug_embeds, contexts_embeds.T)
+        distr = self.softmax(distr)
 
-        assert len(newInput) != 0
+        contexts_embeds = torch.matmul(distr, contexts_embeds)
+        cmpd_embeds = self.cmpd_encoder(cmpds)
 
-        if len(newInput) > 1:
-            if self.ops == 'plus':
-                newInput = newInput[0] + newInput[1]
-            elif self.ops == 'minus':
-                newInput = newInput[0] - newInput[1]
-            else:
-                newInput = torch.cat(newInput, dim=1)
+        newInput = [contexts_embeds, cmpd_embeds]
+        if self.ops == 'plus':
+            newInput = newInput[0] + newInput[1]
+        elif self.ops == 'minus':
+            newInput = newInput[0] - newInput[1]
         else:
-            newInput = newInput[0]
+            newInput = torch.cat(newInput, dim=1)
 
         output = self.ffn(newInput)
 
@@ -127,14 +137,10 @@ def build_model(args: Namespace) -> nn.Module:
     :return: A MoleculeModel containing the MPN encoder along with final linear layers with parameters initialized.
     """
     output_size = args.num_tasks
-    args.output_size = output_size
+    args.output_size = output_size  # Redundant bc of multiclass
     if args.dataset_type == 'multiclass':
         raise NotImplementedError
 
-    model = MoleculeModel(output_raw=args.output_raw)
-    model.create_encoder(args)
-    model.create_ffn(args)
-
-    initialize_weights(model)
+    model = MoleculeModel(args)
 
     return model
