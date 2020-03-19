@@ -173,7 +173,7 @@ def get_loss_func(args: Namespace) -> nn.Module:
     """
     if args.loss_func == 'default':
         if args.dataset_type == 'classification':
-            return nn.BCEWithLogitsLoss(reduction='none')
+            return nn.BCELoss(reduction='none')  # Assumes post-sigmoid input
         elif args.dataset_type == 'regression':
             return nn.MSELoss(reduction='none')
         elif args.dataset_type == 'multiclass':

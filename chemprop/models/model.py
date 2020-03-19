@@ -22,10 +22,12 @@ class MoleculeModel(nn.Module):
         initialize_weights(self)
         self.create_contexts(args)  # Has uniform initialization rather than Xavier
 
+        self.n_contexts = args.n_contexts
+        self.hidden_size = args.hidden_size
         self.softmax = nn.Softmax(dim=1)
-        self.activation = nn.Identity()
-        if args.output_raw:
-            self.activation = nn.Sigmoid()
+        # self.activation = nn.Identity()
+        # if args.output_raw:
+        self.activation = nn.Sigmoid()
 
     def create_encoder(self, args: Namespace):
         """
@@ -102,31 +104,36 @@ class MoleculeModel(nn.Module):
         :return: The output of the MoleculeModel.
         """
         smiles, _ = input  # smiles looks like [(d1,c1), (d2,c2), ...]
+        n_mols = len(smiles)
         drugs, cmpds = zip(*smiles)
 
         drug_embeds = self.drug_encoder(drugs).squeeze(-1)
-        contexts_embeds = self.contexts(self.index).squeeze(0)
-        distr = torch.matmul(drug_embeds, contexts_embeds.T)
+        context_embeds = self.contexts(self.index)
+        distr = torch.matmul(drug_embeds, context_embeds.squeeze(0).T)
         distr = self.softmax(distr)
 
-        contexts_embeds = torch.matmul(distr, contexts_embeds)
         cmpd_embeds = self.cmpd_encoder(cmpds)
+        cmpd_embeds = cmpd_embeds.unsqueeze(1).expand([n_mols, self.n_contexts, self.hidden_size])
+        context_embeds = context_embeds.expand([n_mols, self.n_contexts, self.hidden_size])
 
-        newInput = [contexts_embeds, cmpd_embeds]
+        newInput = [context_embeds, cmpd_embeds]
         if self.ops == 'plus':
             newInput = newInput[0] + newInput[1]
         elif self.ops == 'minus':
             newInput = newInput[0] - newInput[1]
         else:
-            newInput = torch.cat(newInput, dim=1)
+            newInput = torch.cat(newInput, dim=-1)
 
         output = self.ffn(newInput)
+        output = self.activation(output)
+        print(output[0])
+        output = torch.bmm(distr.unsqueeze(1), output)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if not self.training:
             output = self.activation(output)
 
-        return output
+        return output.squeeze(-1)
 
 
 def build_model(args: Namespace) -> nn.Module:
