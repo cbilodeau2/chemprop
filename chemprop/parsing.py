@@ -172,6 +172,10 @@ def add_train_args(parser: ArgumentParser):
                         help='Number of models in ensemble')
     parser.add_argument('--hidden_size', type=int, default=300,
                         help='Dimensionality of hidden layers in MPN')
+    parser.add_argument('--n_contexts', type=int, default=5,
+                        help='Number of unique contexts seen.')
+    parser.add_argument('--class_weights', type=int, default=1,
+                        help='Class weights for MSE weighted loss.')
     parser.add_argument('--bias', action='store_true', default=False,
                         help='Whether to add bias to linear layers')
     parser.add_argument('--depth', type=int, default=3,

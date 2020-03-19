@@ -22,9 +22,10 @@ SPACE = {
     'depth': hp.quniform('depth', low=2, high=6, q=1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
     'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1),
-    'sample_ratio': hp.quniform('sample_ratio', low=10, high=100, q=20)
+    'sample_ratio': hp.quniform('sample_ratio', low=10, high=100, q=20),
+    'n_contexts': hp.quniform('n_contexts', low=5, high=100, q=10)
 }
-INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers', 'sample_ratio']
+INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers', 'n_contexts', 'sample_ratio']
 
 
 def grid_search(args: Namespace):
