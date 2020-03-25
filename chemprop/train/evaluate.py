@@ -45,7 +45,7 @@ def val_loss(model: nn.Module,
         # Run model
         model.zero_grad()
         with torch.no_grad():
-            preds = model(batch, features_batch)
+            preds, _ = model(batch, features_batch)
 
             if dataset_type == 'multiclass':
                 targets = targets.long()

@@ -25,8 +25,6 @@ class MoleculeModel(nn.Module):
         self.n_contexts = args.n_contexts
         self.hidden_size = args.hidden_size
         self.softmax = nn.Softmax(dim=1)
-        # self.activation = nn.Identity()
-        # if args.output_raw:
         self.activation = nn.Sigmoid()
 
     def create_encoder(self, args: Namespace):
@@ -110,7 +108,8 @@ class MoleculeModel(nn.Module):
         drug_embeds = self.drug_encoder(drugs).squeeze(-1)
         context_embeds = self.contexts(self.index)
         distr = torch.matmul(drug_embeds, context_embeds.squeeze(0).T)
-        distr = self.softmax(distr)
+        distr = self.softmax(distr)  # P(C_i = i | M_1)
+        entropy = torch.sum(-distr*torch.log2(distr), dim=1)
 
         cmpd_embeds = self.cmpd_encoder(cmpds)
         cmpd_embeds = cmpd_embeds.unsqueeze(1).expand([n_mols, self.n_contexts, self.hidden_size])
@@ -125,15 +124,10 @@ class MoleculeModel(nn.Module):
             newInput = torch.cat(newInput, dim=-1)
 
         output = self.ffn(newInput)
-        output = self.activation(output)
-        print(output[0])
-        output = torch.bmm(distr.unsqueeze(1), output)
+        output = self.activation(output)  # P(I=1 | C_i=i, M_2)
+        output = torch.bmm(distr.unsqueeze(1), output)  # Sums over C_i, weighted by P(C_i = i | M_1)
 
-        # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if not self.training:
-            output = self.activation(output)
-
-        return output.squeeze(-1)
+        return output.squeeze(-1), entropy
 
 
 def build_model(args: Namespace) -> nn.Module:

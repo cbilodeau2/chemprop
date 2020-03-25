@@ -38,7 +38,7 @@ def predict(model: nn.Module,
         batch = smiles_batch
 
         with torch.no_grad():
-            batch_preds = model(batch, features_batch)
+            batch_preds, _ = model(batch, features_batch)
 
         batch_preds = batch_preds.data.cpu().numpy()
 

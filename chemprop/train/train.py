@@ -73,7 +73,7 @@ def train(model: nn.Module,
 
         # Run model
         model.zero_grad()
-        preds = model(batch, features_batch)
+        preds, reg = model(batch, features_batch)
 
         if args.dataset_type == 'multiclass':
             targets = targets.long()
@@ -85,6 +85,7 @@ def train(model: nn.Module,
         loss_sum += loss.item()
         iter_count += 1
 
+        loss = loss + 0.001*reg.mean()
         loss.backward()
         if args.grad_clip:
             nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -104,10 +105,11 @@ def train(model: nn.Module,
             loss_sum, iter_count = 0, 0
 
             lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
-            debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
+            debug(f'Loss = {loss_avg:.4e}, Reg = {reg.mean().item():.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
 
             if writer is not None:
                 writer.add_scalar('train_loss', loss_avg, n_iter)
+                writer.add_scalar('train_reg', reg.mean().item(), n_iter)
                 writer.add_scalar('param_norm', pnorm, n_iter)
                 writer.add_scalar('gradient_norm', gnorm, n_iter)
                 for i, lr in enumerate(lrs):
