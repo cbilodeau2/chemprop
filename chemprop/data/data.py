@@ -3,8 +3,9 @@ import random
 from typing import Callable, List, Tuple, Union
 
 import numpy as np
-from torch.utils.data.dataset import Dataset
+from collections import defaultdict
 from rdkit import Chem
+from torch.utils.data.dataset import Dataset
 
 from .scaler import StandardScaler
 from chemprop.features import get_features_generator
@@ -14,7 +15,9 @@ class MolPairDatapoint:
     """A MolPairDatapoint contains two molecules and their associated features, context, and targets."""
 
     def __init__(self,
-                 line: List[str],
+                 drug_smiles: str,
+                 cmpd_smiles: str,
+                 targets: List[float],
                  args: Namespace = None,
                  drug_feats: np.ndarray = None,
                  cmpd_feats: np.ndarray = None,
@@ -47,16 +50,15 @@ class MolPairDatapoint:
 
         if use_compound_names:
             raise NotImplementedError
-            # self.compound_name = line[0]  # str
-            # line = line[1:]
-        # else:
         self.compound_name = None
 
-        self.drug_smiles = line[0]  # str
+        self.drug_smiles = drug_smiles  # str
         self.drug_mol = Chem.MolFromSmiles(self.drug_smiles)
 
-        self.cmpd_smiles = line[1]  # str
+        self.cmpd_smiles = cmpd_smiles  # str
         self.cmpd_mol = Chem.MolFromSmiles(self.cmpd_smiles)
+        # Create targets
+        self.targets = targets
 
         # Generate additional features if given a generator
         if self.features_generator is not None:
@@ -79,22 +81,26 @@ class MolPairDatapoint:
             self.drug_feats = np.where(np.isnan(self.drug_feats), replace_token, self.drug_feats)
         if self.cmpd_feats is not None:
             replace_token = 0
-            self.cmpd_feats = np.where(np.isnan(self.cmpd_feats), replace_token, self.cmpd_feats) 
-        # Create targets
-        self.targets = [float(x) if x != '' else None for x in line[2:]]
+            self.cmpd_feats = np.where(np.isnan(self.cmpd_feats), replace_token, self.cmpd_feats)
+        if self.context is not None:
+            replace_token = 0
+            self.context = np.where(np.isnan(self.context), replace_token, self.context)
+
 
     def set_features(self, features: np.ndarray, mol: int):
         """
         Sets the features of the molecule.
 
         :param features: A 1-D numpy array of features for the molecule.
-        :param mol: An int identifying which molecules the features correpond to. 0 for drug, 1 for compound.
+        :param mol: An int identifying which molecules the features correpond to. 0 for drug, 1 for compound, 2 for pair
         """
-        assert (mol == 0 or mol == 1)
-        if mol:
+        assert (mol in [0,1,2])
+        if mol == 0:
             self.cmpd_feats = features
-        else:
+        elif mol == 1:
             self.drug_feats = features
+        else:
+            self.context = features
 
     def num_tasks(self) -> int:
         """
@@ -153,7 +159,7 @@ class MolPairDataset(Dataset):
         """
         return [(d.drug_mol, d.cmpd_mol) for d in self.data]
 
-    def features(self, concat=False) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def features(self, concat=False) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         Returns the features associated with each molecule (if they exist).
 
@@ -161,12 +167,10 @@ class MolPairDataset(Dataset):
         """
         if len(self.data) == 0:
             return None
-        # if self.data[0].drug_feats is None and self.data[0].cmpd_feats is None)
-        # TODO fix
 
         if concat:
-            return [np.concatenate((d.drug_feats, d.cmpd_feats)) for d in self.data]
-        return [(d.drug_feats, d.cmpd_feats) for d in self.data]
+            return [np.concatenate((d.drug_feats, d.cmpd_feats, d.context)) for d in self.data]
+        return [(d.drug_feats, d.cmpd_feats, d.context) for d in self.data]
 
     def targets(self) -> List[List[float]]:
         """
@@ -192,15 +196,15 @@ class MolPairDataset(Dataset):
         """
         if len(self.data) == 0:
             return None
-        if self.data[0].drug_feats is None and self.data[0].cmpd_feats is None:
-            return None
-        
-        drug_dim, cmpd_dim = 0, 0
+
+        drug_dim, cmpd_dim, context_dim = 0, 0, 0
         if self.data[0].drug_feats is not None:
             drug_dim = len(self.data[0].drug_feats)
         if self.data[0].cmpd_feats is not None:
             cmpd_dim = len(self.data[0].cmpd_feats)
-        return drug_dim + cmpd_dim
+        if self.data[0].context is not None:
+            context_dim = len(self.data[0].context)
+        return drug_dim + cmpd_dim + context_dim
 
     def shuffle(self, seed: int = None):
         """
@@ -287,3 +291,82 @@ class MolPairDataset(Dataset):
         :return: A MoleculeDatapoint if an int is provided or a list of MoleculeDatapoints if a slice is provided.
         """
         return self.data[item]
+
+
+class ContrastMolPairDataset(MolPairDataset):
+    """A ContrastMolPairDataset contains a list of molecule pairs and their associated features, context, and targets."""
+
+    def __init__(self, data: List[MolPairDatapoint], sample_ratio: int, seed: int):
+        """
+        Initializes a ContrastMolPairDataset, which contains a list of MolPairDatapoints (i.e. a list of molecules).
+
+        :param data: A list of MolPairDatapoints.
+        :param sample_ratio: Number of negative examples to sample per positive example.
+        :param seed: Random seed.
+        """
+        # Create lists of negative pairs indexed by drug and cmpd
+        self.neg_data = [defaultdict(list),defaultdict(list)]
+        for neg_pair in filter(lambda x: x.targets[0] == 0, data):
+            self.neg_data[0][neg_pair.drug_smiles].append(neg_pair)
+            self.neg_data[1][neg_pair.cmpd_smiles].append(neg_pair)
+
+        # Only include those that have negative pairs to compare against
+        self.pos_data = []
+        for pos_pair in filter(lambda x: x.targets[0] == 1, data):
+            if len(self.neg_data[1][pos_pair.cmpd_smiles]) > 0:
+                self.pos_data.append( (pos_pair, 1) )
+            if len(self.neg_data[0][pos_pair.drug_smiles]) > 0:
+                self.pos_data.append( (pos_pair, 0) )
+        # Need to shuffle order again to separate 0/1's and neg sample correlations.
+        # External shuffle needed to make sure internal seeded shuffle is effective across epochs.
+        self.shuffle(seed)
+
+    # Self note: no need to impelment any more than the basics since it gets converted back to MolPairDataset anyways
+
+    def shuffle(self, seed: int):
+        """
+        Shuffles the dataset.
+
+        :param seed: Optional random seed.
+        """
+        random.seed(seed)
+        random.shuffle(self.pos_data)
+        for key in self.neg_data[0]:
+            random.shuffle(self.neg_data[0][key])
+        for key in self.neg_data[1]:
+            random.shuffle(self.neg_data[1][key])
+
+    def __len__(self) -> int:
+        """
+        Returns the length of the dataset (i.e. the number of molecules).
+
+        :return: The length of the dataset.
+        """
+        return len(self.pos_data)
+
+    def __getitem__(self, item) -> Union[MolPairDatapoint, List[MolPairDatapoint]]:
+        """
+        Gets one or more MoleculeDatapoints via an index or slice.
+
+        :param item: An index (int) or a slice object.
+        :return: A MoleculeDatapoint if an int is provided or a list of MoleculeDatapoints if a slice is provided.
+        """
+        retBatch = []
+        iterate = self.pos_data[item]
+        if type(item) == int:  # Handles case where you want to just query one point
+            iterate = [iterate]
+
+        for pos_pair, ind in iterate:  # Take slice of pos_data list.
+            retBatch.append(pos_pair)
+            query = pos_pair.cmpd_smiles if ind else pos_pair.drug_smiles
+
+            neg_samples = self.neg_data[ind][query]
+            retBatch.extend(neg_samples)
+        return retBatch
+
+
+def convert2contrast(dataset: MolPairDataset) -> ContrastMolPairDataset:
+    if dataset.num_tasks() != 1:
+        raise ValueError("Ambiguous conversion if more than one property.")
+    args = dataset.args
+    return ContrastMolPairDataset(dataset, args.sample_ratio, args.seed)

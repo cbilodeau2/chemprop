@@ -15,7 +15,7 @@ if __name__ == '__main__':
                         help='Morgan fingerprint radius')
     parser.add_argument('--num_bits', type=int, default=2048,
                         help='Number of bits in morgan fingerprint')
-    parser.add_argument('--model_type', type=str, choices=['random_forest', 'svm'], required=True,
+    parser.add_argument('--model_type', type=str, choices=['random_forest', 'svm'], default='random_forest',
                         help='scikit-learn model to use')
     parser.add_argument('--num_trees', type=int, default=500,
                         help='Number of random forest trees')

@@ -120,11 +120,7 @@ def get_data(path: str,
     # Load features
     if features_path is not None:
         for feat_path in features_path:
-            features_data = load_features(feat_path)
-        # features_data = []
-        # for feat_path in features_path:
-            # features_data.append(load_features(feat_path))  # each is num_data x num_features
-        # features_data = np.concatenate(features_data, axis=1)
+            features_data = load_features(feat_path)  # Expect file to look like {SMILES: feats}
     else:
         features_data = None
 
@@ -135,25 +131,37 @@ def get_data(path: str,
         reader = csv.reader(f)
         next(reader)  # skip header
 
-        lines = []
+        lines = []  # drug_smile, cmpd_smile, targets, context
         for line in reader:
             drug_smiles = line[0]
             cmpd_smiles = line[1]
+            targets, context = [], []
 
             if drug_smiles in skip_smiles or cmpd_smiles in skip_smiles:
                 continue
 
-            lines.append(line)
+            for i in range(2, len(line)):
+                if line[i] == '':
+                    continue
+                elif args.data_format is None or args.data_format[i] == 'P':
+                    targets.append( float(line[i]) )
+                else:
+                    context.append( float(line[i]) )
+            lines.append( (drug_smiles, cmpd_smiles, targets, context) )
 
             if len(lines) >= max_data_size:
                 break
 
+
         data = MolPairDataset([
             MolPairDatapoint(
-                line=line,
+                drug_smiles=line[0],
+                cmpd_smiles=line[1],
+                targets=line[2],
                 args=args,
                 drug_feats=features_data[drug_smiles] if features_data is not None else None,
                 cmpd_feats=features_data[cmpd_smiles] if features_data is not None else None,
+                context=np.array(line[3]) if len(line[3]) > 0 else None,
                 use_compound_names=use_compound_names
             ) for i, line in tqdm(enumerate(lines), total=len(lines))
         ])
@@ -166,9 +174,8 @@ def get_data(path: str,
         if len(data) < original_data_len:
             debug(f'Warning: {original_data_len - len(data)} SMILES are invalid.')
 
-    feats_size = data.features_size()
-    if feats_size:
-        args.features_dim = feats_size
+    if args.use_input_features:
+        args.features_dim = data.features_size()
 
     return data
 
@@ -382,6 +389,27 @@ def _assure_val_split(train, val, train_size, seed):
         train, val = data[:train_size], data[train_size:]
     return train, val
 
+
+def flip_data(data: MolPairDataset) -> MolPairDataset:
+    """
+    Flips drug <--> cmpd in dataset.
+    """
+    # TODO: Fix error with context.
+    flip_feats = data.args.features_path is not None
+    flip_context = (data.args.data_format is not None) and ('F' in data.args.data_format)
+    flipped = [
+        MolPairDatapoint(
+            drug_smiles=entry.cmpd_smiles,
+            cmpd_smiles=entry.drug_smiles,
+            targets=entry.targets,
+            args=data.args,
+            drug_feats=entry.cmpd_feats if flip_feats else None,
+            cmpd_feats=entry.drug_feats if flip_feats else None,
+            context=np.array(list(reversed(list(entry.context)))) if flip_context else None,
+            use_compound_names=False
+        ) for _, entry in tqdm(enumerate(data.data), total=len(data.data))
+    ]
+    return MolPairDataset(data.data + flipped)
 
 
 def get_class_sizes(data: MolPairDataset) -> List[List[float]]:

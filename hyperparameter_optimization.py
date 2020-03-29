@@ -16,11 +16,12 @@ from chemprop.utils import create_logger, makedirs
 
 
 SPACE = {
-    'hidden_size': hp.quniform('hidden_size', low=300, high=2400, q=100),
+    'hidden_size': hp.quniform('hidden_size', low=100, high=1500, q=100),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
-    'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1)
+    'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1),
+    'sample_ratio': hp.quniform('sample_ratio', low=10, high=100, q=20)
 }
-INT_KEYS = ['hidden_size', 'ffn_num_layers']
+INT_KEYS = ['hidden_size', 'ffn_num_layers', 'sample_ratio']
 
 
 def grid_search(args: Namespace):
@@ -96,6 +97,10 @@ if __name__ == '__main__':
     args.config_save_path = os.path.join(args.save_dir, 'hyper.json')
     args.log_dir = args.save_dir
     assert args.config_save_path  # check if supplied
+
+    if args.loss_func == 'default':
+        del SPACE['sample_ratio']
+        INT_KEYS.remove('sample_ratio')
 
     start = time.time()
     grid_search(args)

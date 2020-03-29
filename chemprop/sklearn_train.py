@@ -11,7 +11,7 @@ from sklearn.svm import SVC, SVR
 from tqdm import trange, tqdm
 
 from chemprop.data import MolPairDataset
-from chemprop.data.utils import get_data, split_data, split_loocv
+from chemprop.data.utils import get_data, split_data, split_loocv, flip_data
 from chemprop.features import get_features_generator
 from chemprop.train.evaluate import evaluate_predictions
 from chemprop.utils import get_metric_func, makedirs
@@ -48,42 +48,52 @@ def predict(model,
     return preds
 
 
-def single_task_sklearn(model,
-                        train_data: MolPairDataset,
-                        test_data: MolPairDataset,
-                        metric_func: Callable,
-                        args: Namespace,
-                        logger: Logger = None) -> List[float]:
-    scores = []
+def compose_feats(feat_tuple):
+    ret = [feat for feat in feat_tuple if feat is not None]
+    return np.concatenate(ret)
+
+
+def multi_task_sklearn(model,
+                       train_data: MolPairDataset,
+                       test_data: MolPairDataset,
+                       metric_func: Callable,
+                       args: Namespace,
+                       logger: Logger = None) -> List[float]:
+    if logger is not None:
+        debug, info = logger.debug, logger.info
+    else:
+        debug = info = print
     num_tasks = train_data.num_tasks()
-    for task_num in trange(num_tasks):
-        # Only get features and targets for molecules where target is not None
-        train_features, train_targets = zip(*[(features, targets[task_num])
-                                              for features, targets in zip(train_data.features(True), train_data.targets())
-                                              if targets[task_num] is not None])
-        test_features, test_targets = zip(*[(features, targets[task_num])
-                                            for features, targets in zip(test_data.features(True), test_data.targets())
-                                            if targets[task_num] is not None])
 
-        model.fit(train_features, train_targets)
+    train_targets = train_data.targets()
+    if train_data.num_tasks() == 1:
+        train_targets = [targets[0] for targets in train_targets]
 
-        test_preds = predict(
-            model=model,
-            model_type=args.model_type,
-            dataset_type=args.dataset_type,
-            features=test_features
-        )
-        test_targets = [[target] for target in test_targets]
+    # Train
+    feats = [compose_feats(feat) for feat in train_data.features()]
+    model.fit(feats, train_targets)
 
-        score = evaluate_predictions(
-            preds=test_preds,
-            targets=test_targets,
-            num_tasks=1,
-            metric_func=metric_func,
-            dataset_type=args.dataset_type,
-            logger=logger
-        )
-        scores.append(score[0])
+    # Save model
+    with open(os.path.join(args.save_dir, 'model.pkl'), 'wb') as f:
+        pickle.dump(model, f)
+
+    debug('Predicting')
+    feats = [compose_feats(feat) for feat in test_data.features()]
+    test_preds = predict(
+        model=model,
+        model_type=args.model_type,
+        dataset_type=args.dataset_type,
+        features=feats
+    )
+
+    scores = evaluate_predictions(
+        preds=test_preds,
+        targets=test_data.targets(),
+        num_tasks=num_tasks,
+        metric_func=metric_func,
+        dataset_type=args.dataset_type,
+        logger=logger
+    )
 
     return scores
 
@@ -99,11 +109,12 @@ def run_sklearn(args: Namespace, logger: Logger = None) -> List[float]:
     metric_func = get_metric_func(args.metric)
 
     debug('Loading data')
+
     if args.shuffle:
         data_path = os.path.join(os.path.dirname(args.data_path), f'agg_{args.seed}.csv')
     else:
         data_path = args.data_path
-    data = get_data(path=data_path)
+    data = get_data(path=args.data_path, args=args)
 
     if args.model_type == 'svm' and data.num_tasks() != 1:
         raise ValueError(f'SVM can only handle single-task data but found {data.num_tasks()} tasks')
@@ -125,6 +136,9 @@ def run_sklearn(args: Namespace, logger: Logger = None) -> List[float]:
             sizes=args.split_sizes,
             args=args
         )
+
+    if args.symmetric:
+        train_data = flip_data(train_data)
 
     debug(f'Total size = {len(data):,} | train size = {len(train_data):,} | test size = {len(test_data):,}')
 

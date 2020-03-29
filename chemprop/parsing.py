@@ -6,7 +6,7 @@ import pickle
 
 import torch
 
-from chemprop.utils import makedirs
+from chemprop.utils import makedirs, output_raw
 from chemprop.features import get_available_features_generators
 
 
@@ -19,6 +19,8 @@ def add_predict_args(parser: ArgumentParser):
     parser.add_argument('--gpu', type=int,
                         choices=list(range(torch.cuda.device_count())),
                         help='Which GPU to use')
+    parser.add_argument('--data_format', type=str, default=None,
+                        help='SSPFFFF example for 2 smiles, prop, followed by feats')
     parser.add_argument('--test_path', type=str,
                         help='Path to CSV file containing testing data for which predictions will be made')
     parser.add_argument('--use_compound_names', action='store_true', default=False,
@@ -61,8 +63,9 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--gpu', type=int,
                         choices=list(range(torch.cuda.device_count())),
                         help='Which GPU to use')
-    parser.add_argument('--data_path', type=str,
-                        help='Path to data CSV file')
+    parser.add_argument('--data_path', type=str, help='Path to data CSV file')
+    parser.add_argument('--data_format', type=str, help='SSPFFFF example for 2 smiles, prop, followed by feats')
+    parser.add_argument('--symmetric', action='store_true', default=False, help='Trains on symmetric data.')
     parser.add_argument('--use_compound_names', action='store_true', default=False,
                         help='Use when test data file contains compound names in addition to SMILES strings')
     parser.add_argument('--max_data_size', type=int,
@@ -75,7 +78,7 @@ def add_train_args(parser: ArgumentParser):
                         choices=get_available_features_generators(),
                         help='Method of generating additional features')
     parser.add_argument('--features_path', type=str, nargs='*',
-                        help='Path to features to use in FNN (instead of features_generator)')                   
+                        help='Path to features to use in FNN (instead of features_generator)')
     parser.add_argument('--save_dir', type=str, default=None,
                         help='Directory where model checkpoints will be saved')
     parser.add_argument('--save_smiles_splits', action='store_true', default=False,
@@ -91,6 +94,8 @@ def add_train_args(parser: ArgumentParser):
                         choices=['classification', 'regression', 'multiclass'],
                         help='Type of dataset, e.g. classification or regression.'
                              'This determines the loss function used during training.')
+    parser.add_argument('--loss_func', type=str, default='default',
+                        choices=['default', 'contrastive'], help='Type of loss function to use')
     parser.add_argument('--multiclass_num_classes', type=int, default=3,
                         help='Number of classes when running multiclass classification')
     parser.add_argument('--separate_val_path', type=str,
@@ -117,8 +122,7 @@ def add_train_args(parser: ArgumentParser):
     parser.add_argument('--crossval_index_dir', type=str, 
                         help='Directory in which to find cross validation index files')
     parser.add_argument('--crossval_index_file', type=str, 
-                        help='Indices of files to use as train/val/test'
-                             'Overrides --num_folds and --seed.')
+                        help='Indices of files to use as train/val/test, Overrides --seed.')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed to use when splitting data into train/val/test sets.'
                              'When `num_folds` > 1, the first fold uses this seed and all'
@@ -148,6 +152,7 @@ def add_train_args(parser: ArgumentParser):
                         help='Number of epochs to run')
     parser.add_argument('--batch_size', type=int, default=50,
                         help='Batch size')
+    parser.add_argument('--sample_ratio', type=int, default=50, help='Neg2pos ratio for contrastive loss.')
     parser.add_argument('--warmup_epochs', type=float, default=2.0,
                         help='Number of epochs during which learning rate increases linearly from'
                              'init_lr to max_lr. Afterwards, learning rate decreases exponentially'
@@ -322,6 +327,9 @@ def modify_train_args(args: Namespace):
         assert args.features_generator or args.features_path
 
     args.use_input_features = args.features_generator or args.features_path
+    if args.data_format:
+        assert args.data_format[:2] == 'SS'
+        args.use_input_features = args.use_input_features or 'F' in args.data_format
 
     if args.features_generator is not None and 'rdkit_2d_normalized' in args.features_generator:
         assert not args.features_scaling
@@ -347,8 +355,10 @@ def modify_train_args(args: Namespace):
     if args.split_type in ['crossval', 'index_predetermined']:
         with open(args.crossval_index_file, 'rb') as rf:
             args.crossval_index_sets = pickle.load(rf)
-        args.num_folds = len(args.crossval_index_sets)
+        args.num_folds = min(args.num_folds, len(args.crossval_index_sets))
         args.seed = 0
+
+    args.output_raw = output_raw(args)
 
     if args.test:
         args.epochs = 0

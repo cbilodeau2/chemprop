@@ -16,7 +16,7 @@ from .evaluate import evaluate, evaluate_predictions
 from .predict import predict, save_predictions
 from .train import train
 from chemprop.data import StandardScaler
-from chemprop.data.utils import get_class_sizes, get_data, get_task_names, split_data, split_loocv, get_smiles_sets
+from chemprop.data.utils import flip_data, get_class_sizes, get_data, get_task_names, split_data, split_loocv, get_smiles_sets
 from chemprop.models import build_model
 from chemprop.nn_utils import param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
@@ -112,6 +112,9 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             all_split_indices.append(split_indices)
         with open(os.path.join(args.save_dir, 'split_indices.pckl'), 'wb') as f:
             pickle.dump(all_split_indices, f)
+
+    if args.symmetric:
+        train_data = flip_data(train_data)
 
     if args.features_scaling:
         drug_scaler, cmpd_scaler = train_data.normalize_features(replace_nan_token=0)
@@ -227,7 +230,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             if args.minimize_score and avg_val_score < best_score or \
                     not args.minimize_score and avg_val_score > best_score:
                 best_score, best_epoch = avg_val_score, epoch
-                save_checkpoint(os.path.join(save_dir, 'model.pt'), model, scaler, drug_scaler, cmpd_scaler, args)        
+                save_checkpoint(os.path.join(save_dir, 'model.pt'), model, scaler, drug_scaler, cmpd_scaler, args)
 
         # Evaluate on test set using model with best validation score
         info(f'Model {model_idx} best validation {args.metric} = {best_score:.6f} on epoch {best_epoch}')
@@ -242,7 +245,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         if args.save_preds:
             val_preds = predict(model=model, data=val_data, batch_size=args.batch_size, scaler=scaler)
             train_preds = predict(model=model, data=train_data, batch_size=args.batch_size, scaler=scaler)
-            save_predictions(save_dir, train_data, val_data, test_data, train_preds, val_preds, test_preds)
+            save_predictions(save_dir, train_data, val_data, test_data, train_preds, val_preds, test_preds, scaler)
 
         test_scores = evaluate_predictions(
             preds=test_preds,

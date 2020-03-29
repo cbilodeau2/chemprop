@@ -3,6 +3,7 @@ from typing import Dict, List, Union
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from .embed import Embedding
 from chemprop.nn_utils import get_activation_function, initialize_weights
@@ -11,21 +12,19 @@ from chemprop.nn_utils import get_activation_function, initialize_weights
 class MoleculeModel(nn.Module):
     """A MoleculeModel is a model which contains a message passing network following by feed-forward layers."""
 
-    def __init__(self, classification: bool, multiclass: bool):
+    def __init__(self, output_raw: bool, use_cuda: bool):
         """
         Initializes the MoleculeModel.
 
-        :param classification: Whether the model is a classification model.
+        :param raw_score: Whether the model should apply activation to output.
+        :param cuda: Whether or not to use cuda.
         """
         super(MoleculeModel, self).__init__()
 
-        self.classification = classification
-        if self.classification:
-            self.sigmoid = nn.Sigmoid()
-        self.multiclass = multiclass
-        if self.multiclass:
-            self.multiclass_softmax = nn.Softmax(dim=2)
-        assert not (self.classification and self.multiclass)
+        self.activation = nn.Identity()
+        if output_raw:
+            self.activation = nn.Sigmoid()
+        self.use_cuda = use_cuda
 
     def create_embeddings(self, args: Namespace,
             drug_set: Union[Dict[str, int], List[str]],
@@ -66,7 +65,7 @@ class MoleculeModel(nn.Module):
         if args.features_only:
             first_linear_dim = args.features_size
         else:
-            first_linear_dim = args.hidden_size*2
+            first_linear_dim = args.hidden_size*2  # To account for 2 molecules
             if args.use_input_features:
                 first_linear_dim += args.features_dim
 
@@ -110,7 +109,7 @@ class MoleculeModel(nn.Module):
         :param input: Input.
         :return: The output of the MoleculeModel.
         """
-        smiles, feats = input
+        smiles, feats = input  # TODO: in future, move drug/cmpd feats out of MPN
 
         newInput = []
         if self.drug_encoder:
@@ -132,15 +131,17 @@ class MoleculeModel(nn.Module):
         else:
             newInput = newInput[0]
 
-        output = self.ffn(newInput)
+        # Incorporate pair features when available
+        if feats[0][2] is not None:
+            features_batch = torch.from_numpy(np.stack([x[2] for x in feats])).float()
+            if self.use_cuda:
+                features_batch = features_batch.cuda()
+            newInput = torch.cat((newInput, features_batch), dim=1)
 
+        output = self.ffn(newInput)
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
-        if self.classification and not self.training:
-            output = self.sigmoid(output)
-        if self.multiclass:
-            output = output.reshape((output.size(0), -1, self.num_classes)) # batch size x num targets x num classes per target
-            if not self.training:
-                output = self.multiclass_softmax(output) # to get probabilities during evaluation, but not during training as we're using CrossEntropyLoss
+        if not self.training:
+            output = self.activation(output)
 
         return output
 
@@ -157,9 +158,9 @@ def build_model(args: Namespace,
     output_size = args.num_tasks
     args.output_size = output_size
     if args.dataset_type == 'multiclass':
-        args.output_size *= args.multiclass_num_classes
+        raise NotImplementedError
 
-    model = MoleculeModel(classification=args.dataset_type == 'classification', multiclass=args.dataset_type == 'multiclass')
+    model = MoleculeModel(output_raw=args.output_raw, use_cuda=args.cuda)
     model.create_ffn(args)
     initialize_weights(model)  # initialize xavier for ffn and uniform for embeddings
     model.create_embeddings(args, drug_set, cmpd_set)
