@@ -43,7 +43,7 @@ class Embedding(nn.Module):
             batch = batch.cuda()
         mol_vecs = self.encoder(batch)
 
-        if self.use_input_features:
+        if features_batch is not None:
             features_batch = torch.from_numpy(np.stack(features_batch)).float()
 
             features_batch = features_batch.to(mol_vecs)
