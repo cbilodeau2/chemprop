@@ -69,6 +69,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
     else:
         train_data, val_data, test_data = split_data(data=data, split_type=args.split_type, sizes=args.split_sizes, seed=args.seed, args=args, logger=logger)
 
+    
     if args.dataset_type == 'classification':
         class_sizes = get_class_sizes(test_data)
         debug('Class sizes in test set')
@@ -110,7 +111,9 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             all_split_indices.append(split_indices)
         with open(os.path.join(args.save_dir, 'split_indices.pckl'), 'wb') as f:
             pickle.dump(all_split_indices, f)
+    
 
+    
     if args.symmetric:
         train_data = flip_data(train_data)
 
@@ -125,7 +128,11 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
     
     debug(f'Total size = {len(data):,} | '
           f'train size = {len(train_data):,} | val size = {len(val_data):,} | test size = {len(test_data):,}')
-
+####
+#     print('TestingTesting')
+#     print(train_data.targets())
+#     print('TestingTesting')
+    
     # Initialize scaler and scale training targets by subtracting mean and dividing standard deviation (regression only)
     if args.dataset_type == 'regression':
         debug('Fitting scaler')
@@ -135,6 +142,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         train_data.set_targets(scaled_targets)
     else:
         scaler = None
+###        ######
 
     # Get loss and metric functions
     loss_func = get_loss_func(args)
@@ -182,6 +190,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         # Run training
         best_score = float('inf') if args.minimize_score else -float('inf')
         best_epoch, n_iter = 0, 0
+
         for epoch in trange(args.epochs):
             debug(f'Epoch {epoch}')
 

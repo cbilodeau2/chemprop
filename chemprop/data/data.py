@@ -16,7 +16,9 @@ class MolPairDatapoint:
 
     def __init__(self,
                  drug_smiles: str,
+                 drug_fraction: float,
                  cmpd_smiles: str,
+                 cmpd_fraction: float,
                  targets: List[float],
                  args: Namespace = None,
                  drug_feats: np.ndarray = None,
@@ -30,7 +32,7 @@ class MolPairDatapoint:
         :param args: Arguments.
         :param drug_feats: A numpy array containing additional features for molecule 1 (ex. Morgan fingerprint).
         :param cmpd_feats: A numpy array containing additional features for molecule 2 (ex. Morgan fingerprint).
-        :param context: A numpy array containing additional features defining context (ex. cell line).
+        :param context: A numpy array containing additional features defining context (ex. cell line). THIS HAS BEEN REMOVED
 
         NOT SUPPORTED
         :param use_compound_names: Whether the data CSV includes the compound name on each line.
@@ -46,7 +48,11 @@ class MolPairDatapoint:
 
         self.drug_feats = drug_feats
         self.cmpd_feats = cmpd_feats
-        self.context = context
+        self.drug_fraction = float(drug_fraction)
+        self.cmpd_fraction = float(cmpd_fraction)
+        self.context = None #context
+        
+        
 
         if use_compound_names:
             raise NotImplementedError
@@ -59,6 +65,7 @@ class MolPairDatapoint:
         self.cmpd_mol = Chem.MolFromSmiles(self.cmpd_smiles)
         # Create targets
         self.targets = targets
+        #print(targets)
 
         # Generate additional features if given a generator
         if self.features_generator is not None:
@@ -86,7 +93,7 @@ class MolPairDatapoint:
             replace_token = 0
             self.context = np.where(np.isnan(self.context), replace_token, self.context)
 
-
+        
     def set_features(self, features: np.ndarray, mol: int):
         """
         Sets the features of the molecule.
@@ -131,7 +138,9 @@ class MolPairDataset(Dataset):
         self.data = data
         self.args = self.data[0].args if len(self.data) > 0 else None
         self.drug_scaler, self.cmpd_scaler = None, None
-
+        #print('TESTINGTESTINGTESTING')
+        #print([d.targets for d in self.data])
+        
     def compound_names(self) -> List[str]:
         """
         Returns the compound names associated with the molecule (if they exist).
@@ -150,6 +159,14 @@ class MolPairDataset(Dataset):
         :return: A list of smiles strings.
         """
         return [(d.drug_smiles, d.cmpd_smiles) for d in self.data]
+    
+    def fractions(self) -> List[Tuple[float, float]]:
+        """
+        Returns the fractions associated with the molecules.
+
+        :return: A list of fractions (float).
+        """
+        return [(d.drug_fraction, d.cmpd_fraction) for d in self.data]
 
     def mols(self) -> List[Chem.Mol]:
         """

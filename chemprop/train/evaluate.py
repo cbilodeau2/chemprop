@@ -33,7 +33,7 @@ def val_loss(model: nn.Module,
 
     for i in range(0, len(data), batch_size):
         mol_batch = MolPairDataset(data[i:i + batch_size])
-        smiles_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.features(), mol_batch.targets()
+        smiles_batch, fractions_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.fractions(), mol_batch.features(), mol_batch.targets()
         # TODO: Apply scaling to features
 
         # Apply inverse scaling if regression
@@ -53,7 +53,7 @@ def val_loss(model: nn.Module,
         # Run model
         model.zero_grad()
         with torch.no_grad():
-            preds = model(batch, features_batch)
+            preds = model(batch, fractions_batch, features_batch)
 
             if dataset_type == 'multiclass':
                 targets = targets.long()

@@ -32,13 +32,13 @@ def predict(model: nn.Module,
     for i in trange(0, num_iters, iter_step):
         # Prepare batch
         mol_batch = MolPairDataset(data[i:i + batch_size])
-        smiles_batch, features_batch = mol_batch.smiles(), mol_batch.features()
+        smiles_batch, fractions_batch, features_batch = mol_batch.smiles(), mol_batch.fractions(), mol_batch.features()
 
         # Run model
         batch = smiles_batch
 
         with torch.no_grad():
-            batch_preds = model(batch, features_batch)
+            batch_preds = model(batch, fractions_batch, features_batch)
 
         batch_preds = batch_preds.data.cpu().numpy()
 

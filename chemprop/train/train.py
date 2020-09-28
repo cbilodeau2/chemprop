@@ -1,3 +1,4 @@
+import numpy as np
 from argparse import Namespace
 import logging
 from typing import Callable, List
@@ -37,7 +38,9 @@ def train(model: nn.Module,
     :return: The total number of iterations (training examples) trained on so far.
     """
     debug = logger.debug if logger is not None else print
-
+    
+    
+    
     model.train()
 
     data.shuffle()  # Very important this is done before conversion to maintain randomness in contrastive dataset.
@@ -55,7 +58,8 @@ def train(model: nn.Module,
         if i + args.batch_size > len(data):
             break
         mol_batch = MolPairDataset(data[i:i + args.batch_size])
-        smiles_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.features(), mol_batch.targets()
+        smiles_batch, fractions_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.fractions(), mol_batch.features(), mol_batch.targets()
+        #print(mol_batch.smiles())
         batch = smiles_batch
         targets = torch.Tensor([[0 if x is None else x for x in tb] for tb in target_batch])
         if args.loss_func == 'contrastive':
@@ -76,8 +80,11 @@ def train(model: nn.Module,
 
         # Run model
         model.zero_grad()
-        preds = model(batch, features_batch)
-
+#         print(np.shape(batch))
+#         print(batch)
+        #print(features_batch)
+        preds = model(batch, fractions_batch, features_batch)
+        #print(targets)
         if args.dataset_type == 'multiclass':
             targets = targets.long()
             loss = torch.cat([loss_func(preds[:, target_index, :], targets[:, target_index]).unsqueeze(1) for target_index in range(preds.size(1))], dim=1) * class_weights * mask
